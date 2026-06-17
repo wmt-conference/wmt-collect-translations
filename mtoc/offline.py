@@ -449,10 +449,18 @@ class VllmAdapter(BaseBackend):
 
         prompts = [request.prompt() for request in requests]
         rendered_prompts = [self._render_prompt(prompt) for prompt in prompts]
+        # Anti-repetition defaults: break the degenerate reasoning loops gpt-oss
+        # falls into on low-resource target languages (which otherwise exhaust the
+        # token budget before emitting a final answer). repetition_penalty curbs
+        # token reuse and frequency_penalty ramps up as a token repeats, so severe
+        # loops are suppressed while normal translation is barely affected. vLLM
+        # has no no_repeat_ngram_size, so these penalties stand in for the HF path.
         sampling_params = SamplingParams(
             max_tokens=max_new_tokens,
             temperature=temperature,
             top_p=top_p,
+            repetition_penalty=1.1,
+            frequency_penalty=0.3,
         )
         outputs = self.llm.generate(rendered_prompts, sampling_params)
         results: List[TranslationResult] = []
