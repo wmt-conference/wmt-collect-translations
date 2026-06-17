@@ -1,10 +1,10 @@
 {
   "schema_version": 1,
-  "description": "WMT26 local/offline model registry. Contains only planned WMT26 systems that mtoc can run on the local 8x80GB node. The default backend is hf with Accelerate/device_map sharding; vLLM remains optional for targeted experiments. Proprietary, external-provider, old exploratory, and multi-node-only systems are tracked in run_manifest.json instead.",
+  "description": "WMT26 local/offline model registry. Contains only planned WMT26 systems that mtoc can run on the local 8x80GB node. The default backend is 'auto': mtoc tries vLLM first (faster, handles quantized checkpoints like gpt-oss MXFP4) and transparently falls back to the HF/Transformers Accelerate path when vLLM does not support a model. Proprietary, external-provider, old exploratory, and multi-node-only systems are tracked in run_manifest.json instead.",
   "models": {
     "qwen3_5_9b": {
       "hf_id": "Qwen/Qwen3.5-9B",
-      "backend": "hf",
+      "backend": "auto",
       "dtype": "bfloat16",
       "tensor_parallel_size": 1,
       "default_batch_size": 8,
@@ -18,7 +18,7 @@
     },
     "tiny_aya_global": {
       "hf_id": "CohereLabs/tiny-aya-global",
-      "backend": "hf",
+      "backend": "auto",
       "dtype": "bfloat16",
       "tensor_parallel_size": 1,
       "default_batch_size": 32,
@@ -32,7 +32,7 @@
     },
     "gemma4_e4b": {
       "hf_id": "google/gemma-4-E4B-it",
-      "backend": "hf",
+      "backend": "auto",
       "dtype": "bfloat16",
       "tensor_parallel_size": 1,
       "default_batch_size": 16,
@@ -46,7 +46,7 @@
     },
     "ministral3_14b": {
       "hf_id": "mistralai/Ministral-3-14B-Instruct-2512",
-      "backend": "hf",
+      "backend": "auto",
       "dtype": "bfloat16",
       "tensor_parallel_size": 1,
       "default_batch_size": 8,
@@ -60,21 +60,21 @@
     },
     "gpt_oss_20b": {
       "hf_id": "openai/gpt-oss-20b",
-      "backend": "hf",
+      "backend": "auto",
       "dtype": "bfloat16",
       "tensor_parallel_size": 1,
       "default_batch_size": 16,
       "default_max_input_length": 8192,
-      "default_max_new_tokens": 1024,
+      "default_max_new_tokens": 2048,
       "trust_remote_code": true,
       "gated": false,
       "track": "Constrained",
       "run_scope": "All",
-      "notes": "WMT26 sheet: GPT OSS 20B. Public HF id verified by API probe."
+      "notes": "WMT26 sheet: GPT OSS 20B. Public HF id verified by API probe. Reasoning minimized (reasoning_effort=low) and only the Harmony 'final' channel is saved; max_new_tokens raised to 2048 so the answer is not cut off mid-analysis."
     },
     "tower_9b": {
       "hf_id": "Unbabel/Tower-Plus-9B",
-      "backend": "hf",
+      "backend": "auto",
       "dtype": "bfloat16",
       "tensor_parallel_size": 1,
       "default_batch_size": 8,
@@ -88,7 +88,7 @@
     },
     "glm4_9b": {
       "hf_id": "zai-org/glm-4-9b-chat",
-      "backend": "hf",
+      "backend": "auto",
       "dtype": "bfloat16",
       "tensor_parallel_size": 1,
       "default_batch_size": 8,
@@ -102,7 +102,7 @@
     },
     "qwen3_6_27b": {
       "hf_id": "Qwen/Qwen3.6-27B",
-      "backend": "hf",
+      "backend": "auto",
       "dtype": "bfloat16",
       "tensor_parallel_size": 2,
       "default_batch_size": 16,
@@ -116,7 +116,7 @@
     },
     "gemma4_31b": {
       "hf_id": "google/gemma-4-31B-it",
-      "backend": "hf",
+      "backend": "auto",
       "dtype": "bfloat16",
       "tensor_parallel_size": 2,
       "default_batch_size": 16,
@@ -130,7 +130,7 @@
     },
     "mistral_medium_3_5": {
       "hf_id": "mistralai/Mistral-Medium-3.5-128B",
-      "backend": "hf",
+      "backend": "auto",
       "dtype": "bfloat16",
       "tensor_parallel_size": 8,
       "default_batch_size": 8,
@@ -144,17 +144,17 @@
     },
     "gpt_oss_120b": {
       "hf_id": "openai/gpt-oss-120b",
-      "backend": "hf",
-      "dtype": "bfloat16",
+      "backend": "auto",
+      "dtype": "auto",
       "tensor_parallel_size": 8,
       "default_batch_size": 8,
       "default_max_input_length": 8192,
-      "default_max_new_tokens": 1024,
+      "default_max_new_tokens": 2048,
       "trust_remote_code": true,
       "gated": false,
       "track": "Unconstrained",
       "run_scope": "only subset?",
-      "notes": "WMT26 sheet: GPT OSS 120B. Public HF id verified by API probe; reserve all 8 GPUs. KNOWN ISSUE: load fails with a CUDA illegal-memory-access while materializing the MXFP4 MoE weights across GPUs (transformers core_model_loading). Dequantized weights do not fit on a single GPU. Not yet runnable on this stack."
+      "notes": "WMT26 sheet: GPT OSS 120B. Public HF id verified by API probe; reserve all 8 GPUs. Runs on the vLLM backend (tensor_parallel_size=8): vLLM loads the native MXFP4 MoE weights, whereas the HF loader hits a CUDA illegal-memory-access materializing MXFP4 across GPUs. dtype=auto lets vLLM pick the compute dtype. Reasoning minimized (reasoning_effort=low) and only the Harmony 'final' channel is saved; max_new_tokens raised to 2048 so the answer is not cut off mid-analysis."
     }
   }
 }

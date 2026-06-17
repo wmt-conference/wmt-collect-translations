@@ -4,7 +4,9 @@ from __future__ import annotations
 import argparse
 import os
 import shlex
+import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Sequence, Tuple
@@ -433,6 +435,155 @@ def command_run(args: argparse.Namespace) -> int:
     return 2 if total_failures else 0
 
 
+def model_weights_cached(model: RuntimeModelConfig) -> bool:
+    """Return True if the model's weights appear to be present in the local HF cache.
+
+    Avoids launching a subprocess for a model whose checkpoint was never downloaded
+    (e.g. a gated repo we lack access to). We look for a non-empty snapshot dir with
+    at least one weight shard under the configured HF cache.
+    """
+    cache_root = os.environ.get("HF_HUB_CACHE") or os.environ.get("TRANSFORMERS_CACHE")
+    if not cache_root:
+        # No offline cache configured; assume the runtime will fetch as needed.
+        return True
+    snapshots = Path(cache_root) / ("models--" + model.model_id.replace("/", "--")) / "snapshots"
+    if not snapshots.is_dir():
+        return False
+    for snapshot in snapshots.iterdir():
+        if not snapshot.is_dir():
+            continue
+        for pattern in ("*.safetensors", "*.bin", "*.gguf", "consolidated*.pth"):
+            if any(snapshot.glob(pattern)):
+                return True
+    return False
+
+
+def command_launch(args: argparse.Namespace) -> int:
+    """Run each selected model in its own subprocess.
+
+    Running every model inside a single process leaks GPU memory between models
+    (vLLM workers in particular stay resident), so each model is isolated in a
+    fresh process. Single-GPU (tp=1) models run concurrently across the GPU pool
+    (one model per GPU, refilling as GPUs free up); multi-GPU models then run
+    sequentially, each reserving the GPUs it needs. Resume is enabled, so
+    re-launching skips rows already written.
+
+    Models whose weights are not present in the local cache are skipped (so an
+    undownloaded gated repo like tiny_aya_global is ignored automatically) unless
+    --require-cached is disabled.
+    """
+    registry = load_model_registry(args.model_registry)
+    selected_models = resolve_models(args.models, registry)
+    gpu_ids = parse_gpu_ids(args.gpus)
+
+    runnable: List[RuntimeModelConfig] = []
+    skipped: List[str] = []
+    for model in selected_models:
+        if model.tensor_parallel_size > len(gpu_ids):
+            skipped.append(f"{model.key} (needs {model.tensor_parallel_size} GPUs, have {len(gpu_ids)})")
+            continue
+        if args.require_cached and not model_weights_cached(model):
+            skipped.append(f"{model.key} (weights not in local cache)")
+            continue
+        runnable.append(model)
+
+    print(f"Launcher: {len(runnable)} model(s) to run, {len(skipped)} skipped")
+    for note in skipped:
+        print(f"  skip {note}")
+    if not runnable:
+        print("No runnable models selected.", file=sys.stderr)
+        return 2
+
+    small = [m for m in runnable if m.tensor_parallel_size == 1]
+    large = [m for m in runnable if m.tensor_parallel_size > 1]
+    print(
+        f"Scheduling: {len(small)} single-GPU model(s) in parallel across {len(gpu_ids)} GPU(s), "
+        f"then {len(large)} multi-GPU model(s) sequentially.",
+        flush=True,
+    )
+
+    results: List[Tuple[str, int]] = []
+    if small:
+        results.extend(_run_parallel_single_gpu(args, small, gpu_ids))
+    for model in large:
+        results.append(_run_one(args, model, gpu_ids[: model.tensor_parallel_size]))
+
+    print("\nLauncher summary:")
+    failures = 0
+    for key, code in results:
+        print(f"  {key:20} {'ok' if code == 0 else f'FAILED ({code})'}")
+        if code != 0:
+            failures += 1
+    print(f"Completed {len(results) - failures}/{len(results)} models successfully.")
+    return 2 if failures else 0
+
+
+def _run_one(args: argparse.Namespace, model: RuntimeModelConfig, model_gpus: Sequence[str]) -> Tuple[str, int]:
+    """Run a single model in the foreground, inheriting stdout (sequential phase)."""
+    command = build_run_command(args, model)
+    env = dict(os.environ)
+    env["CUDA_VISIBLE_DEVICES"] = ",".join(model_gpus)
+    print(f"\n>> {model.key} on GPU(s) {','.join(model_gpus)} ({model.backend} backend)", flush=True)
+    completed = subprocess.run(command, env=env)
+    status = "ok" if completed.returncode == 0 else f"FAILED (exit {completed.returncode})"
+    print(f"<< {model.key}: {status}", flush=True)
+    return model.key, completed.returncode
+
+
+def _run_parallel_single_gpu(
+    args: argparse.Namespace, models: Sequence[RuntimeModelConfig], gpu_ids: Sequence[str]
+) -> List[Tuple[str, int]]:
+    """Run tp=1 models concurrently, one per GPU, refilling GPUs as models finish.
+
+    Each model's console output is redirected to <log-dir>/<key>/run.log so the
+    parallel streams do not interleave; the launcher prints concise start/finish
+    lines. The per-model translations/failures JSONL files are written as usual.
+    """
+    free_gpus: List[str] = list(gpu_ids)
+    pending: List[RuntimeModelConfig] = list(models)
+    running: List[Tuple[RuntimeModelConfig, str, Any, Any]] = []  # model, gpu, proc, logfile
+    results: List[Tuple[str, int]] = []
+    done = 0
+    total = len(models)
+
+    while pending or running:
+        # Fill free GPUs with pending models.
+        while pending and free_gpus:
+            model = pending.pop(0)
+            gpu = free_gpus.pop(0)
+            command = build_run_command(args, model)
+            env = dict(os.environ)
+            env["CUDA_VISIBLE_DEVICES"] = gpu
+            log_path = failure_path_for(args.log_dir, model.key).parent / "run.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            logfile = open(log_path, "w", encoding="utf-8")
+            proc = subprocess.Popen(command, env=env, stdout=logfile, stderr=subprocess.STDOUT)
+            print(f">> {model.key} started on GPU {gpu} ({model.backend} backend); log {log_path}", flush=True)
+            running.append((model, gpu, proc, logfile))
+
+        # Reap any finished processes.
+        still_running: List[Tuple[RuntimeModelConfig, str, Any, Any]] = []
+        for model, gpu, proc, logfile in running:
+            code = proc.poll()
+            if code is None:
+                still_running.append((model, gpu, proc, logfile))
+                continue
+            logfile.close()
+            free_gpus.append(gpu)
+            done += 1
+            status = "ok" if code == 0 else f"FAILED (exit {code})"
+            print(f"<< [{done}/{total}] {model.key}: {status} (GPU {gpu} freed)", flush=True)
+            results.append((model.key, code))
+        running = still_running
+
+        if running and not (pending and free_gpus):
+            time.sleep(5)
+
+    return results
+
+
+
+
 def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--input", type=Path, required=True, help="Input JSONL with doc_id, source_doc, tgt_lang, and instruction fields.")
     parser.add_argument("--model-registry", type=Path, default=DEFAULT_REGISTRY, help="Path to model registry JSON file.")
@@ -443,7 +594,7 @@ def add_runtime_args(parser: argparse.ArgumentParser) -> None:
     add_common_args(parser)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Root output directory.")
     parser.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR, help="Root failure-log directory.")
-    parser.add_argument("--backend", choices=("registry", "hf", "vllm"), default="registry", help="Use registry backend or force hf/vllm.")
+    parser.add_argument("--backend", choices=("registry", "auto", "hf", "vllm"), default="registry", help="Use the registry backend, or force auto (vLLM with HF fallback), hf, or vllm.")
     parser.add_argument("--limit", type=int, default=None, help="Maximum number of non-empty rows to run.")
     parser.add_argument("--batch-size", type=int, default=None, help="Override per-model batch size.")
     parser.add_argument("--max-input-length", type=int, default=None, help="Override per-model prompt truncation length.")
@@ -477,6 +628,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser = subparsers.add_parser("run", help="Run selected models sequentially in this process.")
     add_runtime_args(run_parser)
 
+    launch_parser = subparsers.add_parser("launch", help="Run each selected model in its own subprocess (frees GPU memory between models). Safe for full-set runs.")
+    add_runtime_args(launch_parser)
+    launch_parser.add_argument("--gpus", default=os.environ.get("CUDA_VISIBLE_DEVICES", "0,1,2,3,4,5,6,7"), help="Comma-separated GPU ids available to the launcher.")
+    launch_parser.set_defaults(require_cached=True)
+    launch_parser.add_argument("--no-require-cached", dest="require_cached", action="store_false", help="Also launch models whose weights are not in the local cache (the runtime will try to fetch them).")
+
     return parser
 
 
@@ -491,6 +648,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return command_plan(args)
     if args.command == "run":
         return command_run(args)
+    if args.command == "launch":
+        return command_launch(args)
     parser.error(f"Unsupported command: {args.command}")
     return 2
 

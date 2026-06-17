@@ -7,6 +7,57 @@ from typing import Any, Dict, List, Sequence
 from interfaces import BaseBackend, RuntimeModelConfig, TranslationRequest, TranslationResult
 
 
+def _is_gpt_oss(model_config: RuntimeModelConfig) -> bool:
+    return "gpt-oss" in model_config.model_id.lower() or "gpt_oss" in model_config.key.lower()
+
+
+def _apply_chat_template(tokenizer: Any, messages: List[Dict[str, str]], *, tokenize: bool, return_dict: bool, gpt_oss: bool) -> Any:
+    """Apply a chat template, suppressing reasoning where the model supports it.
+
+    gpt-oss honours ``reasoning_effort`` (Harmony format); Qwen-style models honour
+    ``enable_thinking=False``. Both are passed opportunistically and we degrade to a
+    plain template when the tokenizer rejects an unknown kwarg.
+    """
+    base: Dict[str, Any] = {"add_generation_prompt": True}
+    if return_dict:
+        base["return_dict"] = True
+    attempts: List[Dict[str, Any]] = []
+    if gpt_oss:
+        attempts.append({**base, "reasoning_effort": "low"})
+    attempts.append({**base, "enable_thinking": False})
+    attempts.append(base)
+    last_exc: Exception | None = None
+    for kwargs in attempts:
+        try:
+            return tokenizer.apply_chat_template(messages, tokenize=tokenize, **kwargs)
+        except TypeError as exc:
+            last_exc = exc
+            continue
+    if last_exc is not None:
+        raise last_exc
+    return tokenizer.apply_chat_template(messages, tokenize=tokenize, add_generation_prompt=True)
+
+
+def _extract_gpt_oss_final(text: str) -> str:
+    """Return only the Harmony ``final`` channel from a gpt-oss completion.
+
+    gpt-oss emits ``analysis<reasoning>...assistantfinal<answer>``. We keep just the
+    answer. If the model never reached the final channel (e.g. it exhausted the token
+    budget mid-analysis), return an empty string so the row is flagged as a failure
+    rather than polluted with raw reasoning text.
+    """
+    marker = "assistantfinal"
+    index = text.rfind(marker)
+    if index != -1:
+        return text[index + len(marker):].strip()
+    # Fallback: some renderings expose the channel as a bare ``final`` tag.
+    final_index = text.rfind("final")
+    if final_index != -1 and "analysis" in text[:final_index]:
+        return text[final_index + len("final"):].strip()
+    return ""
+
+
+
 def create_offline_backend(
     model_config: RuntimeModelConfig,
     *,
@@ -27,6 +78,14 @@ def create_offline_backend(
         )
     if backend == "vllm":
         return VllmAdapter(model_config, gpu_memory_utilization=gpu_memory_utilization)
+    if backend == "auto":
+        return AutoBackend(
+            model_config,
+            device_map=device_map,
+            gpu_memory_utilization=gpu_memory_utilization,
+            max_memory_per_gpu=max_memory_per_gpu,
+            allow_cpu_offload=allow_cpu_offload,
+        )
     raise ValueError(f"Unsupported backend for {model_config.key}: {backend}")
 
 
@@ -50,6 +109,7 @@ class HfCausalLmAdapter(BaseBackend):
         self.torch: Any = None
         self._use_cache: bool = True
         self._uses_chat_template: bool = False
+        self._is_gpt_oss: bool = _is_gpt_oss(model_config)
 
     def load(self) -> None:
         if self.model is not None and self.tokenizer is not None:
@@ -169,6 +229,8 @@ class HfCausalLmAdapter(BaseBackend):
         for request, row in zip(requests, generated):
             new_tokens = row[prompt_width:]
             translation = self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+            if self._is_gpt_oss:
+                translation = _extract_gpt_oss_final(translation)
             results.append(TranslationResult(
                 request=request,
                 translation=translation,
@@ -199,14 +261,9 @@ class HfCausalLmAdapter(BaseBackend):
 
     def _chat_template_ids(self, prompt: str, max_input_length: int) -> List[int]:
         messages = [{"role": "user", "content": prompt}]
-        try:
-            encoded = self.tokenizer.apply_chat_template(
-                messages, tokenize=True, add_generation_prompt=True, return_dict=True, enable_thinking=False
-            )
-        except TypeError:
-            encoded = self.tokenizer.apply_chat_template(
-                messages, tokenize=True, add_generation_prompt=True, return_dict=True
-            )
+        encoded = _apply_chat_template(
+            self.tokenizer, messages, tokenize=True, return_dict=True, gpt_oss=self._is_gpt_oss
+        )
         ids = list(encoded["input_ids"])
         if max_input_length and len(ids) > max_input_length:
             # Keep the tail so the generation prompt (e.g. [/INST]) is preserved.
@@ -354,6 +411,7 @@ class VllmAdapter(BaseBackend):
         self.gpu_memory_utilization = gpu_memory_utilization
         self.llm: Any = None
         self.tokenizer: Any = None
+        self._is_gpt_oss: bool = _is_gpt_oss(model_config)
 
     def load(self) -> None:
         if self.llm is not None:
@@ -400,6 +458,8 @@ class VllmAdapter(BaseBackend):
         results: List[TranslationResult] = []
         for request, output in zip(requests, outputs):
             translation = output.outputs[0].text.strip() if output.outputs else ""
+            if self._is_gpt_oss:
+                translation = _extract_gpt_oss_final(translation)
             results.append(TranslationResult(
                 request=request,
                 translation=translation,
@@ -413,17 +473,93 @@ class VllmAdapter(BaseBackend):
         chat_template = getattr(self.tokenizer, "chat_template", None)
         if chat_template:
             messages = [{"role": "user", "content": prompt}]
-            try:
-                return self.tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True,
-                    enable_thinking=False,
-                )
-            except TypeError:
-                return self.tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True,
-                )
+            return _apply_chat_template(
+                self.tokenizer, messages, tokenize=False, return_dict=False, gpt_oss=self._is_gpt_oss
+            )
         return prompt
+
+
+class AutoBackend(BaseBackend):
+    """Prefer vLLM, fall back to the HF adapter if vLLM cannot load the model.
+
+    vLLM is the faster runtime and handles quantized checkpoints (e.g. gpt-oss
+    MXFP4) that the HF loader chokes on, but it does not support every
+    architecture (legacy remote-code models, some vision-language classes). This
+    wrapper tries vLLM first and transparently falls back to Transformers/HF so a
+    single registry default works across the whole model set.
+    """
+
+    def __init__(
+        self,
+        model_config: RuntimeModelConfig,
+        *,
+        device_map: str = "auto",
+        gpu_memory_utilization: float = 0.9,
+        max_memory_per_gpu: str | None = None,
+        allow_cpu_offload: bool = False,
+    ) -> None:
+        super().__init__(model_config)
+        self._gpu_memory_utilization = gpu_memory_utilization
+        self._hf_kwargs: Dict[str, Any] = {
+            "device_map": device_map,
+            "gpu_memory_utilization": gpu_memory_utilization,
+            "max_memory_per_gpu": max_memory_per_gpu,
+            "allow_cpu_offload": allow_cpu_offload,
+        }
+        self.delegate: BaseBackend | None = None
+
+    def load(self) -> None:
+        if self.delegate is not None:
+            return
+        try:
+            adapter: BaseBackend = VllmAdapter(
+                self.model_config, gpu_memory_utilization=self._gpu_memory_utilization
+            )
+            adapter.load()
+        except Exception as exc:  # noqa: BLE001 - any vLLM failure should fall back
+            print(
+                f"{self.model_config.key}: vLLM backend unavailable ({type(exc).__name__}: {exc}); "
+                f"falling back to HF backend",
+                flush=True,
+            )
+            self._free_cuda()
+            adapter = HfCausalLmAdapter(self.model_config, **self._hf_kwargs)
+            adapter.load()
+            print(f"{self.model_config.key}: using HF backend", flush=True)
+        else:
+            print(f"{self.model_config.key}: using vLLM backend", flush=True)
+        self.delegate = adapter
+
+    def translate_batch(
+        self,
+        requests: Sequence[TranslationRequest],
+        *,
+        max_input_length: int,
+        max_new_tokens: int,
+        temperature: float,
+        top_p: float,
+    ) -> List[TranslationResult]:
+        self.load()
+        assert self.delegate is not None
+        return self.delegate.translate_batch(
+            requests,
+            max_input_length=max_input_length,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+        )
+
+    @staticmethod
+    def _free_cuda() -> None:
+        # Best-effort release of any memory a failed vLLM init left behind before
+        # the HF loader allocates the model.
+        try:
+            import gc
+
+            import torch
+
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:  # noqa: BLE001 - cleanup must never mask the real error
+            pass
