@@ -200,14 +200,14 @@ class HfCausalLmAdapter(BaseBackend):
     def _chat_template_ids(self, prompt: str, max_input_length: int) -> List[int]:
         messages = [{"role": "user", "content": prompt}]
         try:
-            ids = self.tokenizer.apply_chat_template(
-                messages, tokenize=True, add_generation_prompt=True, enable_thinking=False
+            encoded = self.tokenizer.apply_chat_template(
+                messages, tokenize=True, add_generation_prompt=True, return_dict=True, enable_thinking=False
             )
         except TypeError:
-            ids = self.tokenizer.apply_chat_template(
-                messages, tokenize=True, add_generation_prompt=True
+            encoded = self.tokenizer.apply_chat_template(
+                messages, tokenize=True, add_generation_prompt=True, return_dict=True
             )
-        ids = list(ids)
+        ids = list(encoded["input_ids"])
         if max_input_length and len(ids) > max_input_length:
             # Keep the tail so the generation prompt (e.g. [/INST]) is preserved.
             ids = ids[-max_input_length:]

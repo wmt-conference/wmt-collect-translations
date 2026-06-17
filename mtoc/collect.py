@@ -74,7 +74,9 @@ def resolve_models(raw_models: Sequence[str], registry: Dict[str, RuntimeModelCo
 
 def validate_input(path: Path) -> Dict[str, object]:
     issues: List[str] = []
+    notes: List[str] = []
     row_count = 0
+    multimodal_count = 0
     sample_keys: Tuple[str, ...] = ()
 
     for line_number, payload in iter_jsonl(path):
@@ -85,14 +87,18 @@ def validate_input(path: Path) -> Dict[str, object]:
         if missing:
             doc_id = payload.get("doc_id", f"line {line_number}")
             issues.append(f"row {line_number} ({doc_id}) missing fields: {', '.join(missing)}")
-        for field in ("multimodal_instruction", "multimodal_input_path"):
-            if payload.get(field):
-                issues.append(f"row {line_number} has {field}; multimodal inputs are not supported by this text CLI yet")
+        if payload.get("multimodal_instruction") or payload.get("multimodal_input_path"):
+            multimodal_count += 1
 
     if row_count == 0:
         issues.append("input contains no JSONL records")
+    if multimodal_count:
+        notes.append(
+            f"{multimodal_count} row(s) carry multimodal assets; translating the text "
+            f"transcript only (audio/screenshot is ignored)."
+        )
 
-    return {"row_count": row_count, "sample_keys": sample_keys, "issues": issues}
+    return {"row_count": row_count, "sample_keys": sample_keys, "issues": issues, "notes": notes}
 
 
 def load_input_records(path: Path, limit: int | None) -> List[TranslationRequest]:
@@ -101,9 +107,11 @@ def load_input_records(path: Path, limit: int | None) -> List[TranslationRequest
         missing = [field for field in REQUIRED_INPUT_FIELDS if field not in payload]
         if missing:
             raise ValueError(f"{path}:{line_number}: missing fields: {', '.join(missing)}")
-        if payload.get("multimodal_instruction") or payload.get("multimodal_input_path"):
-            raise ValueError(f"{path}:{line_number}: multimodal rows are not supported yet")
 
+        # Multimodal samples (spoken/social domains) carry optional audio or
+        # screenshot assets, but always include a text transcript in source_doc.
+        # We translate the transcript and ignore the asset (audio/screenshot is
+        # not required per the task), so these rows are not dropped.
         source_doc = normalize_source_text(str(payload["source_doc"]))
         if not source_doc:
             continue
@@ -120,11 +128,11 @@ def load_input_records(path: Path, limit: int | None) -> List[TranslationRequest
 
 
 def output_path_for(output_dir: Path, model_key: str) -> Path:
-    return output_dir / model_key / "translations.jsonl"
+    return output_dir / model_key / f"{model_key}.translations.jsonl"
 
 
 def failure_path_for(log_dir: Path, model_key: str) -> Path:
-    return log_dir / model_key / "failures.jsonl"
+    return log_dir / model_key / f"{model_key}.failures.jsonl"
 
 
 def load_completed_keys(output_path: Path, model_key: str) -> set[Tuple[str, str, str]]:
@@ -367,6 +375,11 @@ def command_validate(args: argparse.Namespace) -> int:
     print("Required GPUs if run sequentially by model: " + ", ".join(f"{model.key}:{model.tensor_parallel_size}" for model in selected_models))
 
     issues = list(input_result["issues"])
+    notes = list(input_result.get("notes", []))
+    if notes:
+        print("Notes:")
+        for note in notes:
+            print(f"- {note}")
     if issues:
         print("Errors:")
         for issue in issues:

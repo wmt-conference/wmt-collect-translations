@@ -154,7 +154,7 @@
       "gated": false,
       "track": "Unconstrained",
       "run_scope": "only subset?",
-      "notes": "WMT26 sheet: GPT OSS 120B. Public HF id verified by API probe; reserve all 8 GPUs."
+      "notes": "WMT26 sheet: GPT OSS 120B. Public HF id verified by API probe; reserve all 8 GPUs. KNOWN ISSUE: load fails with a CUDA illegal-memory-access while materializing the MXFP4 MoE weights across GPUs (transformers core_model_loading). Dequantized weights do not fit on a single GPU. Not yet runnable on this stack."
     }
   }
 }
