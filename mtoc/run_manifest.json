@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "description": "Model run list transcribed from the shared-task planning sheet. model_registry_key points to local/offline entries when mtoc can run the model directly.",
+  "models": [
+    {
+      "name": "Qwen 3.5 9B",
+      "key": "qwen3_5_9b",
+      "track": "Constrained",
+      "run_scope": "All",
+      "mode": "offline",
+      "model_registry_key": "qwen3_5_9b",
+      "hf_id": "Qwen/Qwen3.5-9B",
+      "status": "ready"
+    },
+    {
+      "name": "Tiny Aya Global",
+      "key": "tiny_aya_global",
+      "track": "Constrained",
+      "run_scope": "All",
+      "mode": "offline",
+      "model_registry_key": "tiny_aya_global",
+      "hf_id": "CohereLabs/tiny-aya-global",
+      "status": "ready"
+    },
+    {
+      "name": "Gemma 4 4B",
+      "key": "gemma4_e4b",
+      "track": "Constrained",
+      "run_scope": "All",
+      "mode": "offline",
+      "model_registry_key": "gemma4_e4b",
+      "hf_id": "google/gemma-4-E4B-it",
+      "status": "gated"
+    },
+    {
+      "name": "Ministral 3 14B",
+      "key": "ministral3_14b",
+      "track": "Constrained",
+      "run_scope": "All",
+      "mode": "offline",
+      "model_registry_key": "ministral3_14b",
+      "hf_id": "mistralai/Ministral-3-14B-Instruct-2512",
+      "status": "ready"
+    },
+    {
+      "name": "GPT OSS 20B",
+      "key": "gpt_oss_20b",
+      "track": "Constrained",
+      "run_scope": "All",
+      "mode": "offline",
+      "model_registry_key": "gpt_oss_20b",
+      "hf_id": "openai/gpt-oss-20b",
+      "status": "ready"
+    },
+    {
+      "name": "TowerPlus 9B",
+      "key": "towerplus_9b",
+      "track": "Constrained",
+      "run_scope": "All",
+      "mode": "offline",
+      "model_registry_key": "tower_9b",
+      "hf_id": "Unbabel/Tower-Plus-9B",
+      "status": "ready"
+    },
+    {
+      "name": "GLM 4 9B",
+      "key": "glm4_9b",
+      "track": "Constrained",
+      "run_scope": "All",
+      "mode": "offline",
+      "model_registry_key": "glm4_9b",
+      "hf_id": "zai-org/glm-4-9b-chat",
+      "status": "ready"
+    },
+    {
+      "name": "Google Translate",
+      "key": "google_translate",
+      "track": "Proprietary",
+      "run_scope": "All",
+      "mode": "online",
+      "model_registry_key": null,
+      "hf_id": null,
+      "status": "needs_online_wrapper"
+    },
+    {
+      "name": "Qwen3.6-27B",
+      "key": "qwen3_6_27b",
+      "track": "Unconstrained",
+      "run_scope": "All",
+      "mode": "offline",
+      "model_registry_key": "qwen3_6_27b",
+      "hf_id": "Qwen/Qwen3.6-27B",
+      "status": "ready"
+    },
+    {
+      "name": "Command A plus",
+      "key": "command_a_plus",
+      "track": "Unconstrained",
+      "run_scope": "All",
+      "mode": "online_or_external",
+      "model_registry_key": null,
+      "hf_id": "CohereLabs/command-a-plus-05-2026-bf16",
+      "status": "external_workflow",
+      "notes": "Likely better collected via Cohere/API or external owner workflow."
+    },
+    {
+      "name": "Gemma 4 31B",
+      "key": "gemma4_31b",
+      "track": "Unconstrained",
+      "run_scope": "All",
+      "mode": "offline",
+      "model_registry_key": "gemma4_31b",
+      "hf_id": "google/gemma-4-31B-it",
+      "status": "gated"
+    },
+    {
+      "name": "DeepSeek V4 Pro",
+      "key": "deepseek_v4_pro",
+      "track": "Unconstrained",
+      "run_scope": "All",
+      "mode": "offline_multinode",
+      "model_registry_key": null,
+      "hf_id": "deepseek-ai/DeepSeek-V4-Pro",
+      "status": "too_big_for_single_node",
+      "notes": "Sheet note: too big for 8x80GB GPUs, require 3+ nodes."
+    },
+    {
+      "name": "Mistral Medium 3.5",
+      "key": "mistral_medium_3_5",
+      "track": "Unconstrained",
+      "run_scope": "All",
+      "mode": "offline",
+      "model_registry_key": "mistral_medium_3_5",
+      "hf_id": "mistralai/Mistral-Medium-3.5-128B",
+      "status": "ready_but_heavy"
+    },
+    {
+      "name": "Gemini 3.1 Pro",
+      "key": "gemini_3_1_pro",
+      "track": "Proprietary",
+      "run_scope": "All ??",
+      "mode": "online",
+      "model_registry_key": null,
+      "hf_id": null,
+      "status": "needs_online_wrapper",
+      "notes": "Sheet note: either GPT 5.5 or Gemini 3.1 should be in All, but expensive/throttled."
+    },
+    {
+      "name": "Claude Opus 4.7",
+      "key": "claude_opus_4_7",
+      "track": "Proprietary",
+      "run_scope": "only subset?",
+      "mode": "online",
+      "model_registry_key": null,
+      "hf_id": null,
+      "status": "needs_online_wrapper"
+    },
+    {
+      "name": "GPT 5.5",
+      "key": "gpt_5_5",
+      "track": "Proprietary",
+      "run_scope": "only subset?",
+      "mode": "online",
+      "model_registry_key": null,
+      "hf_id": null,
+      "status": "needs_online_wrapper"
+    },
+    {
+      "name": "DeepL NextGen",
+      "key": "deepl_nextgen",
+      "track": "Proprietary",
+      "run_scope": "only subset?",
+      "mode": "online",
+      "model_registry_key": null,
+      "hf_id": null,
+      "status": "needs_online_wrapper"
+    },
+    {
+      "name": "GPT OSS 120B",
+      "key": "gpt_oss_120b",
+      "track": "Unconstrained",
+      "run_scope": "only subset?",
+      "mode": "offline",
+      "model_registry_key": "gpt_oss_120b",
+      "hf_id": "openai/gpt-oss-120b",
+      "status": "ready_but_heavy"
+    },
+    {
+      "name": "GLM 5.1",
+      "key": "glm5_1",
+      "track": "Unconstrained",
+      "run_scope": "only subset?",
+      "mode": "offline_multinode",
+      "model_registry_key": null,
+      "hf_id": "zai-org/GLM-5.1",
+      "status": "too_big_for_single_node",
+      "notes": "Sheet note: too big for 8x80GB GPUs, require 2+ nodes."
+    }
+  ]
+}
