@@ -46,6 +46,20 @@ Some registered models are gated. Authenticate with Hugging Face before running 
 huggingface-cli login
 ```
 
+## Download Models
+
+Download all WMT26 local/offline model repos into the repo-level Hugging Face cache:
+
+```bash
+python download_models.py --cache-dir ../models/hf-hub --models all
+```
+
+The downloader reads `model_registry.wmt26.json`, enables Hugging Face fast-transfer settings, and stores snapshots under `../models/hf-hub`. To preview without downloading:
+
+```bash
+python download_models.py --dry-run
+```
+
 ## Quick Checks
 
 List registered models:

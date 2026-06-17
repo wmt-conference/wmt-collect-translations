@@ -5,3 +5,4 @@ submissions
 wmt_testset
 wmt_translations
 SECRETS.sh
+models/

@@ -5,3 +5,4 @@ huggingface_hub
 sentencepiece
 protobuf
 safetensors
+hf_transfer
