@@ -20,7 +20,7 @@
       "mode": "offline",
       "model_registry_key": "tiny_aya_global",
       "hf_id": "CohereLabs/tiny-aya-global",
-      "status": "ready"
+      "status": "gated"
     },
     {
       "name": "Gemma 4 4B",

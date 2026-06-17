@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
 from interfaces import BaseBackend, RuntimeModelConfig, TranslationRequest, TranslationResult
@@ -38,26 +40,39 @@ class HfCausalLmAdapter(BaseBackend):
             raise RuntimeError("torch is required for --backend hf") from exc
 
         try:
-            from transformers import AutoModelForCausalLM, AutoTokenizer
+            from transformers import AutoConfig, AutoModelForCausalLM, AutoModelForImageTextToText, AutoTokenizer
         except ImportError as exc:
             raise RuntimeError("transformers is required for --backend hf") from exc
 
         self.torch = torch
         dtype = self._resolve_torch_dtype()
+        model_path = self._resolve_model_path()
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.model_config.model_id,
+            model_path,
             trust_remote_code=self.model_config.trust_remote_code,
         )
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
         self.tokenizer.padding_side = "left"
 
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.model_config.model_id,
-            device_map=self.device_map,
+        config = AutoConfig.from_pretrained(
+            model_path,
+            trust_remote_code=self.model_config.trust_remote_code,
+        )
+        if not hasattr(config, "max_length") and hasattr(config, "seq_length"):
+            config.max_length = config.seq_length
+
+        model_class = AutoModelForImageTextToText if config.model_type == "mistral3" else AutoModelForCausalLM
+        device_map = None if config.model_type == "chatglm" else self.device_map
+        self.model = model_class.from_pretrained(
+            model_path,
+            config=config,
+            device_map=device_map,
             torch_dtype=dtype,
             trust_remote_code=self.model_config.trust_remote_code,
         )
+        if device_map is None and self.torch.cuda.is_available():
+            self.model.to("cuda")
         self.model.eval()
 
     def translate_batch(
@@ -138,6 +153,20 @@ class HfCausalLmAdapter(BaseBackend):
             return "auto"
         raise ValueError(f"Unsupported torch dtype: {self.model_config.dtype}")
 
+    def _resolve_model_path(self) -> str:
+        if self.model_config.trust_remote_code:
+            return self.model_config.model_id
+        cache_root = os.environ.get("HF_HUB_CACHE") or os.environ.get("TRANSFORMERS_CACHE")
+        if not cache_root:
+            return self.model_config.model_id
+        cache_path = Path(cache_root) / ("models--" + self.model_config.model_id.replace("/", "--")) / "snapshots"
+        if not cache_path.is_dir():
+            return self.model_config.model_id
+        snapshots = sorted(path for path in cache_path.iterdir() if path.is_dir())
+        if not snapshots:
+            return self.model_config.model_id
+        return str(snapshots[-1])
+
     def _move_inputs(self, encoded: Dict[str, Any]) -> Dict[str, Any]:
         if self.model is None:
             return encoded
@@ -171,6 +200,7 @@ class VllmAdapter(BaseBackend):
             model=self.model_config.model_id,
             tensor_parallel_size=self.model_config.tensor_parallel_size,
             dtype=self.model_config.dtype,
+            max_model_len=self.model_config.default_max_input_length,
             trust_remote_code=self.model_config.trust_remote_code,
             gpu_memory_utilization=self.gpu_memory_utilization,
         )

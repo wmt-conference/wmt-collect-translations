@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "description": "WMT26 local/offline model registry. Contains only planned WMT26 systems that mtoc can run on the local 8x80GB node with hf or vllm. Proprietary, external-provider, old exploratory, and multi-node-only systems are tracked in run_manifest.json instead.",
+  "description": "WMT26 local/offline model registry. Contains only planned WMT26 systems that mtoc can run on the local 8x80GB node. The default backend is hf with Accelerate/device_map sharding; vLLM remains optional for targeted experiments. Proprietary, external-provider, old exploratory, and multi-node-only systems are tracked in run_manifest.json instead.",
   "models": {
     "qwen3_5_9b": {
       "hf_id": "Qwen/Qwen3.5-9B",
@@ -25,10 +25,10 @@
       "default_max_input_length": 4096,
       "default_max_new_tokens": 1024,
       "trust_remote_code": false,
-      "gated": false,
+      "gated": true,
       "track": "Constrained",
       "run_scope": "All",
-      "notes": "WMT26 sheet: Tiny Aya Global. Public HF id verified by API search."
+      "notes": "WMT26 sheet: Tiny Aya Global. HF id verified by API search; gated repo, requires approved access."
     },
     "gemma4_e4b": {
       "hf_id": "google/gemma-4-E4B-it",
@@ -56,11 +56,11 @@
       "gated": false,
       "track": "Constrained",
       "run_scope": "All",
-      "notes": "WMT26 sheet: Ministral 3 14B. Public HF id verified by API search."
+      "notes": "WMT26 sheet: Ministral 3 14B. Public HF id verified by API search. HF load currently needs compatible fine-grained FP8 kernels."
     },
     "gpt_oss_20b": {
       "hf_id": "openai/gpt-oss-20b",
-      "backend": "vllm",
+      "backend": "hf",
       "dtype": "bfloat16",
       "tensor_parallel_size": 1,
       "default_batch_size": 16,
@@ -70,7 +70,7 @@
       "gated": false,
       "track": "Constrained",
       "run_scope": "All",
-      "notes": "WMT26 sheet: GPT OSS 20B. Public HF id verified by API probe; vLLM recommended."
+      "notes": "WMT26 sheet: GPT OSS 20B. Public HF id verified by API probe."
     },
     "tower_9b": {
       "hf_id": "Unbabel/Tower-Plus-9B",
@@ -98,11 +98,11 @@
       "gated": false,
       "track": "Constrained",
       "run_scope": "All",
-      "notes": "WMT26 sheet: GLM 4 9B. Public HF id verified by API search."
+      "notes": "WMT26 sheet: GLM 4 9B. Public HF id verified by API search. HF load currently needs remote-code compatibility follow-up."
     },
     "qwen3_6_27b": {
       "hf_id": "Qwen/Qwen3.6-27B",
-      "backend": "vllm",
+      "backend": "hf",
       "dtype": "bfloat16",
       "tensor_parallel_size": 2,
       "default_batch_size": 16,
@@ -112,11 +112,11 @@
       "gated": false,
       "track": "Unconstrained",
       "run_scope": "All",
-      "notes": "WMT26 sheet: Qwen3.6-27B. Public HF id verified by API search; vLLM recommended."
+      "notes": "WMT26 sheet: Qwen3.6-27B. Public HF id verified by API search."
     },
     "gemma4_31b": {
       "hf_id": "google/gemma-4-31B-it",
-      "backend": "vllm",
+      "backend": "hf",
       "dtype": "bfloat16",
       "tensor_parallel_size": 2,
       "default_batch_size": 16,
@@ -130,7 +130,7 @@
     },
     "mistral_medium_3_5": {
       "hf_id": "mistralai/Mistral-Medium-3.5-128B",
-      "backend": "vllm",
+      "backend": "hf",
       "dtype": "bfloat16",
       "tensor_parallel_size": 8,
       "default_batch_size": 8,
@@ -144,7 +144,7 @@
     },
     "gpt_oss_120b": {
       "hf_id": "openai/gpt-oss-120b",
-      "backend": "vllm",
+      "backend": "hf",
       "dtype": "bfloat16",
       "tensor_parallel_size": 8,
       "default_batch_size": 8,

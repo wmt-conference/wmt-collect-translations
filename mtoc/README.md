@@ -1,6 +1,6 @@
 # mtoc: MT Output Collector
 
-`mtoc` collects machine-translation outputs from model backends. The current implementation focuses on offline/open-source LLMs through Hugging Face Transformers and vLLM. The code is structured so online/API providers can be wrapped later without changing input/output handling.
+`mtoc` collects machine-translation outputs from model backends. The current WMT26 path focuses on offline/open-source LLMs through Hugging Face Transformers with Accelerate/device-map sharding. The code is structured so online/API providers can be wrapped later without changing input/output handling.
 
 The clean entrypoint is `collect.py`. It reads JSONL rows like:
 
@@ -20,7 +20,7 @@ Optional multimodal fields may exist in the input, but this text CLI currently r
 ## Architecture
 
 - `interfaces.py`: shared `TranslationRequest`, `TranslationResult`, `RuntimeModelConfig`, and a plain `BaseBackend` class.
-- `offline.py`: offline backends for local model inference with Transformers and vLLM.
+- `offline.py`: offline backends for local model inference. The WMT26 registry defaults to Hugging Face Transformers; vLLM remains available for targeted experiments.
 - `online.py`: adapter boundary for API/online providers. Existing provider functions can be wrapped if they accept a request dictionary and return either text or `(text, metadata)`.
 - `collect.py`: CLI, input validation, resumable JSONL writing, failure logging, and GPU launch planning.
 - `model_registry.wmt26.json`: default WMT26 offline model registry with only planned local systems.
@@ -34,7 +34,7 @@ For Transformers backends:
 pip install -r requirements.txt
 ```
 
-For vLLM backends, install a vLLM build compatible with the node's CUDA/PyTorch stack:
+For optional vLLM experiments, install a vLLM build compatible with the node's CUDA/PyTorch stack:
 
 ```bash
 pip install vllm
@@ -94,13 +94,13 @@ CUDA_VISIBLE_DEVICES=0 python collect.py run \
   --log-dir logs
 ```
 
-Run a multi-GPU vLLM model:
+Run a multi-GPU HF/Accelerate model:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 python collect.py run \
   --input ../tmp.jsonl \
   --models qwen3_6_27b \
-  --backend vllm \
+  --device-map auto \
   --output-dir outputs \
   --log-dir logs
 ```
@@ -134,8 +134,8 @@ The runner resumes by default. It skips rows already present in the model's outp
 
 Offline backends implement the common interface in `interfaces.py`:
 
-- `hf`: loads an instruction/chat model with `AutoModelForCausalLM` and `AutoTokenizer`.
-- `vllm`: loads a model with vLLM and uses `tensor_parallel_size` from the registry.
+- `hf`: loads an instruction/chat model with `AutoModelForCausalLM`, `AutoTokenizer`, and Accelerate `device_map` support.
+- `vllm`: optional experimental backend for models where first-run compile/capture overhead is acceptable.
 
 Both backends receive `TranslationRequest` objects and return `TranslationResult` objects. The CLI is responsible for batching, resume checks, output rows, and failure rows.
 
@@ -154,8 +154,8 @@ The callable receives a normalized request dictionary containing the original ro
 WMT26 model defaults live in `model_registry.wmt26.json`. Add or edit entries there for the actual WMT26 local/offline model list. Important fields:
 
 - `hf_id`: Hugging Face model id
-- `backend`: `hf` or `vllm`
-- `tensor_parallel_size`: number of GPUs to reserve for this model
+- `backend`: `hf` by default for WMT26; `vllm` only for targeted experiments
+- `tensor_parallel_size`: number of GPUs to make visible for this model; HF uses them through `device_map=auto`
 - `default_batch_size`
 - `default_max_input_length`
 - `default_max_new_tokens`
@@ -172,5 +172,5 @@ The `plan` command uses `tensor_parallel_size` to print non-overlapping GPU wave
 
 - `collect.py run --models a b c` runs selected models sequentially in one process.
 - For parallel collection, prefer `collect.py plan` and launch one process per model.
-- `--backend registry` uses each model's registry default. `--backend hf` or `--backend vllm` forces all selected models to one backend.
+- `--backend registry` uses each model's registry default. For WMT26 this is `hf`; `--backend vllm` can be used for targeted experiments.
 - `--temperature 0` uses greedy decoding for deterministic outputs.

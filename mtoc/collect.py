@@ -414,7 +414,7 @@ def command_run(args: argparse.Namespace) -> int:
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--input", type=Path, required=True, help="Input JSONL with doc_id, source_doc, tgt_lang, and instruction fields.")
-    parser.add_argument("--model-registry", type=Path, default=DEFAULT_REGISTRY, help="Path to model_registry.json.")
+    parser.add_argument("--model-registry", type=Path, default=DEFAULT_REGISTRY, help="Path to model registry JSON file.")
     parser.add_argument("--models", nargs="+", default=["all"], help="Model keys from the registry, or 'all'.")
 
 
@@ -440,7 +440,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     list_parser = subparsers.add_parser("list-models", help="List registered models and runtime defaults.")
-    list_parser.add_argument("--model-registry", type=Path, default=DEFAULT_REGISTRY, help="Path to model_registry.json.")
+    list_parser.add_argument("--model-registry", type=Path, default=DEFAULT_REGISTRY, help="Path to model registry JSON file.")
 
     validate_parser = subparsers.add_parser("validate", help="Validate input schema and selected models.")
     add_common_args(validate_parser)

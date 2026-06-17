@@ -40,7 +40,6 @@ def resolve_models(raw_models: Sequence[str], registry: Dict[str, Dict[str, obje
 
 
 def configure_fast_hf(cache_dir: Path) -> None:
-    os.environ.setdefault("HF_HOME", str(cache_dir))
     os.environ.setdefault("HF_HUB_CACHE", str(cache_dir))
     os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
     os.environ.setdefault("HF_XET_HIGH_PERFORMANCE", "1")
@@ -98,6 +97,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"Registry: {args.registry}")
     print(f"HF cache: {cache_dir}")
     print(f"Models: {', '.join(model_keys)}")
+    print(f"HF_HOME={os.environ.get('HF_HOME', '')}")
+    print(f"HF_HUB_CACHE={os.environ.get('HF_HUB_CACHE')}")
     print(f"HF_HUB_ENABLE_HF_TRANSFER={os.environ.get('HF_HUB_ENABLE_HF_TRANSFER')}")
     print(f"HF_XET_HIGH_PERFORMANCE={os.environ.get('HF_XET_HIGH_PERFORMANCE')}")
 
