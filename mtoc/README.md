@@ -105,6 +105,43 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python collect.py run \
   --log-dir logs
 ```
 
+## Multi-GPU Inference
+
+Large models shard across the GPUs made visible via `CUDA_VISIBLE_DEVICES`,
+using Accelerate's `device_map=auto`. The `plan` command sizes each job from the
+registry `tensor_parallel_size` and assigns disjoint GPUs per wave.
+
+Guardrails on the `hf` backend:
+
+- Each visible GPU is memory-capped (default `--gpu-memory-utilization 0.9`, or
+  an explicit `--max-gpu-memory 72GiB`) so weights spread evenly across GPUs.
+- CPU/disk offload is **disabled by default**: if a model does not fit on the
+  visible GPUs the run fails fast with a clear error instead of crawling. Pass
+  `--allow-cpu-offload` to permit (slow) offloaded inference.
+- After loading, the resolved device placement is printed, e.g.
+  `mistral_medium_3_5: HF device placement across 8 GPU(s): 0, 1, 2, 3, 4, 5, 6, 7`.
+
+Run the 128B model across all 8 GPUs:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 python collect.py run \
+  --input ../tmp.jsonl \
+  --models mistral_medium_3_5 \
+  --output-dir outputs \
+  --log-dir logs
+```
+
+Force a model to shard across exactly 2 GPUs with a per-GPU cap:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 python collect.py run \
+  --input ../tmp.jsonl \
+  --models qwen3_6_27b \
+  --max-gpu-memory 30GiB \
+  --output-dir outputs \
+  --log-dir logs
+```
+
 ## Outputs
 
 Successful translations are written to:
@@ -134,7 +171,7 @@ The runner resumes by default. It skips rows already present in the model's outp
 
 Offline backends implement the common interface in `interfaces.py`:
 
-- `hf`: loads an instruction/chat model with `AutoModelForCausalLM`, `AutoTokenizer`, and Accelerate `device_map` support.
+- `hf`: loads an instruction/chat model with `AutoModelForCausalLM`, `AutoTokenizer`, and Accelerate `device_map` sharding across the visible GPUs (with per-GPU memory caps and an offload guard).
 - `vllm`: optional experimental backend for models where first-run compile/capture overhead is acceptable.
 
 Both backends receive `TranslationRequest` objects and return `TranslationResult` objects. The CLI is responsible for batching, resume checks, output rows, and failure rows.
@@ -174,3 +211,4 @@ The `plan` command uses `tensor_parallel_size` to print non-overlapping GPU wave
 - For parallel collection, prefer `collect.py plan` and launch one process per model.
 - `--backend registry` uses each model's registry default. For WMT26 this is `hf`; `--backend vllm` can be used for targeted experiments.
 - `--temperature 0` uses greedy decoding for deterministic outputs.
+- Multi-GPU `hf` flags: `--max-gpu-memory` (per-GPU cap, e.g. `72GiB`), `--gpu-memory-utilization` (fraction of each GPU, default `0.9`), and `--allow-cpu-offload` (permit slow CPU/disk offload instead of failing fast).

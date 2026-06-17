@@ -56,7 +56,7 @@
       "gated": false,
       "track": "Constrained",
       "run_scope": "All",
-      "notes": "WMT26 sheet: Ministral 3 14B. Public HF id verified by API search. HF load currently needs compatible fine-grained FP8 kernels."
+      "notes": "WMT26 sheet: Ministral 3 14B. HF backend upcasts the FP8 checkpoint to bf16 (no fine-grained FP8 kernels needed). Short inputs translate well; very long documents may need generation tuning."
     },
     "gpt_oss_20b": {
       "hf_id": "openai/gpt-oss-20b",
@@ -98,7 +98,7 @@
       "gated": false,
       "track": "Constrained",
       "run_scope": "All",
-      "notes": "WMT26 sheet: GLM 4 9B. Public HF id verified by API search. HF load currently needs remote-code compatibility follow-up."
+      "notes": "WMT26 sheet: GLM 4 9B. Runs on the HF backend with legacy chatglm remote-code compat shims (single-GPU load, KV cache disabled)."
     },
     "qwen3_6_27b": {
       "hf_id": "Qwen/Qwen3.6-27B",

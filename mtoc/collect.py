@@ -226,6 +226,8 @@ def run_job(args: argparse.Namespace, job: Job, records: Sequence[TranslationReq
         backend_override=args.backend,
         device_map=args.device_map,
         gpu_memory_utilization=args.gpu_memory_utilization,
+        max_memory_per_gpu=args.max_gpu_memory,
+        allow_cpu_offload=args.allow_cpu_offload,
     )
     backend_runner.load()
 
@@ -329,6 +331,12 @@ def build_run_command(args: argparse.Namespace, model: RuntimeModelConfig) -> Li
         command.extend(["--max-input-length", str(args.max_input_length)])
     if args.max_new_tokens is not None:
         command.extend(["--max-new-tokens", str(args.max_new_tokens)])
+    if args.device_map != "auto":
+        command.extend(["--device-map", args.device_map])
+    if args.max_gpu_memory is not None:
+        command.extend(["--max-gpu-memory", args.max_gpu_memory])
+    if args.allow_cpu_offload:
+        command.append("--allow-cpu-offload")
     if not args.resume:
         command.append("--no-resume")
     return command
@@ -429,8 +437,10 @@ def add_runtime_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-new-tokens", type=int, default=None, help="Override per-model generation length.")
     parser.add_argument("--temperature", type=float, default=0.0, help="Generation temperature. 0 means greedy decoding.")
     parser.add_argument("--top-p", type=float, default=1.0, help="Nucleus sampling value when temperature > 0.")
-    parser.add_argument("--device-map", default="auto", help="Transformers device_map for --backend hf.")
-    parser.add_argument("--gpu-memory-utilization", type=float, default=0.9, help="vLLM GPU memory utilization.")
+    parser.add_argument("--device-map", default="auto", help="Transformers device_map for --backend hf (e.g. auto, balanced).")
+    parser.add_argument("--gpu-memory-utilization", type=float, default=0.9, help="Fraction of each visible GPU's memory Accelerate/vLLM may use.")
+    parser.add_argument("--max-gpu-memory", default=None, help="Per-GPU memory cap for --backend hf (e.g. '72GiB'). Overrides --gpu-memory-utilization when set.")
+    parser.add_argument("--allow-cpu-offload", action="store_true", help="Permit Accelerate to offload layers to CPU/disk if a model does not fit on the visible GPUs (slow).")
     parser.set_defaults(resume=True)
     parser.add_argument("--no-resume", dest="resume", action="store_false", help="Do not skip rows already present in output JSONL.")
 
