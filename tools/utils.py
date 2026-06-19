@@ -49,12 +49,11 @@ def collect_answers(blindset, model_name):
     unsupported_languages = []
     for _, row in tqdm(blindset.iterrows(), total=len(blindset), desc=model_name):
         # completely skip unsupported languages
-        if (row['src_lang'], row['tgt_lang']) in unsupported_languages:
+        if row['tgt_lang'] in unsupported_languages:
             continue
 
         request = {
             'doc_id': row['doc_id'],
-            'source_language': row['src_lang'],
             'target_language': row['tgt_lang'],
             'segment': row['src_text'],
             'prompt_instruction': row['prompt_instruction']
@@ -64,7 +63,7 @@ def collect_answers(blindset, model_name):
             answer = _request_model(model_name, request)
         except Exception as e:
             if str(e) == ERROR_UNSUPPORTED_LANGUAGE:
-                unsupported_languages.append((row['src_lang'], row['tgt_lang']))
+                unsupported_languages.append(row['tgt_lang'])
                 continue
             logging.error(f"Error processing {request['doc_id']} with {model_name}: {e}")
             logging.error(traceback.format_exc())

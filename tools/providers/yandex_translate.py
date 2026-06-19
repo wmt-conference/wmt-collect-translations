@@ -20,12 +20,10 @@ def process(request, model=None):
     if key in cache:
         response = cache[key]
     else:
-        source_language = request['source_language']
         target_language = request['target_language'].split("_")[0]  # Handle cases like 'en_US' to 'en'
 
         body = {
             "folderId": os.environ['YANDEX_FOLDER_ID'],
-            "sourceLanguageCode": source_language,
             "targetLanguageCode": target_language,
             "texts": [request['segment']],
             "format": "PLAIN_TEXT",

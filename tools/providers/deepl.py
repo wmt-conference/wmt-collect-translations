@@ -34,7 +34,6 @@ def process(request, model=None):
     else:
         result = client.translate_text(
             request['segment'],
-            source_lang=request['source_language'],
             target_lang=target_language,
         )
         raw = {"text": result.text, "detected_source_lang": result.detected_source_lang}

@@ -47,7 +47,6 @@ def process(request, model=None):
     else:
         raw = goog_translate_client.translate(
             request['segment'],
-            source_language=request['source_language'],
             target_language=target_language,
         )
         cache[key] = raw
