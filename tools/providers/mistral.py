@@ -4,7 +4,7 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_LENGTH, FINISH_STOP
 
 MODELS = {
-    "mistral-medium-3.5": {"max_tokens": 8192, "temperature": None},
+    "mistral-medium-3.5": {"max_tokens": 8192, "extra": {}},
 }
 
 CLIENT = None
@@ -20,27 +20,27 @@ def lazy_get_client():
     return CLIENT
 
 
-def process(request, model, max_tokens, temperature):
+def process(request, model, max_tokens, extra=None):
+    extra = extra or {}
     cache = get_cache("mistral")
     key = cache_key(model, request)
 
     if key in cache:
-        raw = cache[key]
+        raw, extra = cache[key]["raw"], cache[key]["extra"]
     else:
-        raw = _call(request, model, max_tokens, temperature)
+        raw = _call(request, model, max_tokens, extra)
         if raw is None:
             return None
-        cache[key] = raw
+        cache[key] = {"raw": raw, "extra": extra}
 
-    return _extract(raw, temperature)
+    return _extract(raw, extra)
 
 
-def _call(request, model, max_tokens, temperature):
+def _call(request, model, max_tokens, extra):
     client = lazy_get_client()
 
     messages = [{"role": "user", "content": request['prompt']}]
 
-    extra = {"temperature": temperature} if temperature is not None else {}
     try:
         response = client.chat.complete(
             model=model,
@@ -55,7 +55,7 @@ def _call(request, model, max_tokens, temperature):
     return response.model_dump(mode="json")
 
 
-def _extract(raw, temperature):
+def _extract(raw, extra):
     if raw['choices'][0]['finish_reason'] == "stop":
         finish_reason = FINISH_STOP
     elif raw['choices'][0]['finish_reason'] == "length":
@@ -66,7 +66,7 @@ def _extract(raw, temperature):
     return raw['choices'][0]['message']['content'], {
         "raw_response": raw,
         "model": raw['model'],
-        "temperature": temperature,
+        "extra": extra,
         "reasoning_trace": None,
         "input_tokens": raw['usage']['prompt_tokens'],
         "output_tokens": raw['usage']['completion_tokens'],

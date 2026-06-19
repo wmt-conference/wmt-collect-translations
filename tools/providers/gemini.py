@@ -4,9 +4,9 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
 MODELS = {
-    "gemini-3.1-pro-preview": {"max_tokens": 65536, "temperature": None},
-    "gemma-3-12b-it": {"max_tokens": 32768, "temperature": None},
-    "gemma-3-27b-it": {"max_tokens": 32768, "temperature": None},
+    "gemini-3.1-pro-preview": {"max_tokens": 65536, "extra": {}},
+    "gemma-3-12b-it": {"max_tokens": 32768, "extra": {}},
+    "gemma-3-27b-it": {"max_tokens": 32768, "extra": {}},
 }
 
 CLIENT = None
@@ -20,26 +20,26 @@ def lazy_get_client():
     return CLIENT
 
 
-def process(request, model, max_tokens, temperature):
+def process(request, model, max_tokens, extra=None):
+    extra = extra or {}
     cache = get_cache("gemini")
     key = cache_key(model, request)
 
     if key in cache:
-        raw = cache[key]
+        raw, extra = cache[key]["raw"], cache[key]["extra"]
     else:
-        raw = _call(request, model, max_tokens, temperature)
+        raw = _call(request, model, max_tokens, extra)
         if raw is None:
             return None
-        cache[key] = raw
+        cache[key] = {"raw": raw, "extra": extra}
 
-    return _extract(raw, temperature)
+    return _extract(raw, extra)
 
 
-def _call(request, model, max_tokens, temperature):
+def _call(request, model, max_tokens, extra):
     client = lazy_get_client()
     from google.genai import types
 
-    extra = {"temperature": temperature} if temperature is not None else {}
     config = types.GenerateContentConfig(
         max_output_tokens=max_tokens,
         response_mime_type="text/plain",
@@ -71,7 +71,7 @@ def _call(request, model, max_tokens, temperature):
     return response.model_dump(mode="json")
 
 
-def _extract(raw, temperature):
+def _extract(raw, extra):
     if raw['candidates'][0]['finish_reason'] == "MAX_TOKENS":
         finish_reason = FINISH_LENGTH
     elif raw['candidates'][0]['finish_reason'] == "STOP":
@@ -95,7 +95,7 @@ def _extract(raw, temperature):
 
     return text, {"raw_response": raw,
                   "model": raw['model_version'],
-                  "temperature": temperature,
+                  "extra": extra,
                   "reasoning_trace": None,
                   "input_tokens": input_tokens,
                   "output_tokens": candidate_tokens + thinking_tokens,

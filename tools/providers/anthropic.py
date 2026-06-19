@@ -4,7 +4,7 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
 MODELS = {
-    "claude-sonnet-4-5-20250929": {"max_tokens": 16384, "temperature": None},
+    "claude-sonnet-4-5-20250929": {"max_tokens": 16384, "extra": {}},
 }
 
 CLIENT = None
@@ -18,25 +18,25 @@ def lazy_get_client():
     return CLIENT
 
 
-def process(request, model, max_tokens, temperature):
+def process(request, model, max_tokens, extra=None):
+    extra = extra or {}
     cache = get_cache("anthropic")
     key = cache_key(model, request)
 
     if key in cache:
-        raw = cache[key]
+        raw, extra = cache[key]["raw"], cache[key]["extra"]
     else:
-        raw = _call(request, model, max_tokens, temperature)
+        raw = _call(request, model, max_tokens, extra)
         if raw is None:
             return None
-        cache[key] = raw
+        cache[key] = {"raw": raw, "extra": extra}
 
-    return _extract(raw, temperature)
+    return _extract(raw, extra)
 
 
-def _call(request, model, max_tokens, temperature):
+def _call(request, model, max_tokens, extra):
     client = lazy_get_client()
 
-    extra = {"temperature": temperature} if temperature is not None else {}
     response = client.messages.create(
         model=model,
         max_tokens=max_tokens,
@@ -47,7 +47,7 @@ def _call(request, model, max_tokens, temperature):
     return response.model_dump(mode="json")
 
 
-def _extract(raw, temperature):
+def _extract(raw, extra):
     if raw['stop_reason'] == "max_tokens":
         finish_reason = FINISH_LENGTH
     elif raw['stop_reason'] == "end_turn":
@@ -59,7 +59,7 @@ def _extract(raw, temperature):
     return raw['content'][0]['text'], {
         "raw_response": raw,
         "model": raw['model'],
-        "temperature": temperature,
+        "extra": extra,
         "reasoning_trace": None,
         "input_tokens": raw['usage']['input_tokens'],
         "output_tokens": raw['usage']['output_tokens'],

@@ -3,7 +3,7 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
 MODELS = {
-    "gpt-5.1": {"max_tokens": 32768, "temperature": None},
+    "gpt-5.1": {"max_tokens": 32768, "extra": {}},
 }
 
 CLIENT = None
@@ -18,22 +18,23 @@ def lazy_get_client():
     return CLIENT
 
 
-def process(request, model, max_tokens, temperature):
+def process(request, model, max_tokens, extra=None):
+    extra = extra or {}
     cache = get_cache("openai")
     key = cache_key(model, request)
 
     if key in cache:
-        raw = cache[key]
+        raw, extra = cache[key]["raw"], cache[key]["extra"]
     else:
-        raw = _call(request, model, max_tokens)
+        raw = _call(request, model, max_tokens, extra)
         if raw is None:
             return None
-        cache[key] = raw
+        cache[key] = {"raw": raw, "extra": extra}
 
-    return _extract(raw)
+    return _extract(raw, extra)
 
 
-def _call(request, model, max_tokens):
+def _call(request, model, max_tokens, extra):
     import openai
 
     client = lazy_get_client()
@@ -45,6 +46,7 @@ def _call(request, model, max_tokens):
             ],
             max_completion_tokens=max_tokens,
             reasoning_effort="none",
+            **extra,
         )
     except (openai.BadRequestError, openai.APITimeoutError) as e:
         return None
@@ -57,7 +59,7 @@ def _call(request, model, max_tokens):
     return response.model_dump(mode="json")
 
 
-def _extract(raw):
+def _extract(raw, extra):
     if raw['choices'][0]['finish_reason'] == "length":
         finish_reason = FINISH_LENGTH
     elif raw['choices'][0]['finish_reason'] == "stop":
@@ -68,7 +70,7 @@ def _extract(raw):
     return raw['choices'][0]['message']['content'], {
         "raw_response": raw,
         "model": raw['model'],
-        "temperature": None,
+        "extra": extra,
         "reasoning_trace": None,
         "input_tokens": raw['usage']['prompt_tokens'],
         "output_tokens": raw['usage']['completion_tokens'],

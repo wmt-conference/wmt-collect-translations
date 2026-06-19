@@ -47,7 +47,7 @@ def process(request, model=None):
     return response['translations'][0]['text'], {
         "raw_response": response,
         "model": None,
-        "temperature": None,
+        "extra": None,
         "reasoning_trace": None,
         "input_tokens": None,
         "output_tokens": None,

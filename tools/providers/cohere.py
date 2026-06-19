@@ -31,6 +31,8 @@ def process(request, model, max_tokens, extra=None):
         raw, extra = cache[key]["raw"], cache[key]["extra"]
     else:
         raw = _call(request, model, max_tokens, extra)
+        import ipdb
+        ipdb.set_trace()
         if raw is None:
             return None
         cache[key] = {"raw": raw, "extra": extra}

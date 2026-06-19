@@ -4,13 +4,13 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_LENGTH, FINISH_STOP
 
 MODELS = {
-    "deepseek-ai/DeepSeek-V3": {"max_tokens": 8192, "temperature": None},
-    "Qwen/Qwen3-235B-A22B-fp8-tput": {"max_tokens": 8192, "temperature": None},
-    "Qwen/Qwen2.5-7B-Instruct-Turbo": {"max_tokens": 8192, "temperature": None},
-    "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {"max_tokens": 8192, "temperature": None},
-    "meta-llama/Llama-4-Scout-17B-16E-Instruct": {"max_tokens": 8192, "temperature": None},
-    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": {"max_tokens": 8192, "temperature": None},
-    "mistralai/Mistral-7B-Instruct-v0.3": {"max_tokens": 8192, "temperature": None},
+    "deepseek-ai/DeepSeek-V3": {"max_tokens": 8192, "extra": {}},
+    "Qwen/Qwen3-235B-A22B-fp8-tput": {"max_tokens": 8192, "extra": {}},
+    "Qwen/Qwen2.5-7B-Instruct-Turbo": {"max_tokens": 8192, "extra": {}},
+    "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {"max_tokens": 8192, "extra": {}},
+    "meta-llama/Llama-4-Scout-17B-16E-Instruct": {"max_tokens": 8192, "extra": {}},
+    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": {"max_tokens": 8192, "extra": {}},
+    "mistralai/Mistral-7B-Instruct-v0.3": {"max_tokens": 8192, "extra": {}},
 }
 
 CLIENT = None
@@ -24,26 +24,26 @@ def lazy_get_client():
     return CLIENT
 
 
-def process(request, model, max_tokens, temperature):
+def process(request, model, max_tokens, extra=None):
+    extra = extra or {}
     cache = get_cache("together_ai")
     key = cache_key(model, request)
 
     if key in cache:
-        raw = cache[key]
+        raw, extra = cache[key]["raw"], cache[key]["extra"]
     else:
-        raw = _call(request, model, max_tokens, temperature)
+        raw = _call(request, model, max_tokens, extra)
         if raw is None:
             return None
-        cache[key] = raw
+        cache[key] = {"raw": raw, "extra": extra}
 
-    return _extract(raw, temperature)
+    return _extract(raw, extra)
 
 
-def _call(request, model, max_tokens, temperature):
+def _call(request, model, max_tokens, extra):
     import together
 
     client = lazy_get_client()
-    extra = {"temperature": temperature} if temperature is not None else {}
     try:
         response = client.chat.completions.create(
             model=model,
@@ -63,7 +63,7 @@ def _call(request, model, max_tokens, temperature):
     return response.model_dump(mode="json")
 
 
-def _extract(raw, temperature):
+def _extract(raw, extra):
     if raw['choices'][0]['finish_reason'] == "length":
         finish_reason = FINISH_LENGTH
     elif raw['choices'][0]['finish_reason'] == "stop":
@@ -75,7 +75,7 @@ def _extract(raw, temperature):
     return raw['choices'][0]['message']['content'], {
         "raw_response": raw,
         "model": raw['model'],
-        "temperature": temperature,
+        "extra": extra,
         "reasoning_trace": None,
         "input_tokens": raw['usage']['prompt_tokens'],
         "output_tokens": raw['usage']['completion_tokens'],

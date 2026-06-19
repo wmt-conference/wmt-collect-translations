@@ -54,7 +54,7 @@ def process(request, model=None):
     return raw.get('translatedText'), {
         "raw_response": raw,
         "model": None,
-        "temperature": None,
+        "extra": None,
         "reasoning_trace": None,
         "input_tokens": None,
         "output_tokens": None,
