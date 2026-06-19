@@ -55,7 +55,7 @@ def _process_row(row, model_name, unsupported_languages, lock):
     request = {
         'doc_id': row['doc_id'],
         'target_language': row['tgt_lang'],
-        'segment': row['src_text'],
+        'segment': row['source_doc'],
         'instruction': row['instruction']
     }
 
