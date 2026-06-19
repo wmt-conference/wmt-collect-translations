@@ -1,8 +1,14 @@
 import os
 import copy
 import logging
+from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
+MODELS = {
+    "command-a-plus-05-2026": {"max_tokens": 8192, "temperature": 0.0},
+    "command-r7b-12-2024": {"max_tokens": 4096, "temperature": 0.0},
+    "c4ai-aya-expanse-32b": {"max_tokens": 4096, "temperature": 0.0},
+}
 
 CLIENT = None
 def lazy_get_client():
@@ -15,39 +21,29 @@ def lazy_get_client():
     return CLIENT
 
 
-def process_with_command_A(request, max_tokens=None, temperature=None):
-    if max_tokens is None:
-        max_tokens = 8192
-    if temperature is None:
-        temperature = 0.0
-    return process_with_cohere(request, "command-a-plus-05-2026", max_tokens=max_tokens, temperature=temperature)
+def process(request, model, max_tokens, temperature):
+    cache = get_cache("cohere")
+    key = cache_key(model, request)
 
-def process_with_command_R7B(request, max_tokens=None, temperature=None):
-    if max_tokens is None:
-        max_tokens = 4096
-    if temperature is None:
-        temperature = 0.0
-    return process_with_cohere(request, "command-r7b-12-2024", max_tokens=max_tokens, temperature=temperature)
+    if key in cache:
+        raw = cache[key]
+    else:
+        raw = _call(request, model, max_tokens, temperature)
+        if raw is None:
+            return None
+        cache[key] = raw
 
-def process_with_aya_expanse_32B(request, max_tokens=None, temperature=None):
-    if max_tokens is None:
-        max_tokens = 4096
-    if temperature is None:
-        temperature = 0.0
-    return process_with_cohere(request, "c4ai-aya-expanse-32b", max_tokens=max_tokens, temperature=temperature)
+    return _extract(raw, model, temperature)
 
 
-def process_with_cohere(request, model, max_tokens=8192, temperature=0.0):
+def _call(request, model, max_tokens, temperature):
     import cohere
 
-    # to avoid overwriting the original request
-    request = copy.deepcopy(request)
     co = lazy_get_client()
-
-    messages=[{
-			"role": "user",
-			"content": [{"type": "text", "text": request['prompt']}]
-		}]
+    messages = [{
+        "role": "user",
+        "content": [{"type": "text", "text": request['prompt']}]
+    }]
 
     try:
         response = co.chat(
@@ -62,22 +58,26 @@ def process_with_cohere(request, model, max_tokens=8192, temperature=0.0):
         if "No valid response generated" in err.body['message']:
             return None
         raise err
-    
-    if response.finish_reason == 'MAX_TOKENS':
+
+    return response.model_dump(mode="json")
+
+
+def _extract(raw, model, temperature):
+    if raw['finish_reason'] == 'MAX_TOKENS':
         finish_reason = FINISH_LENGTH
-    elif response.finish_reason == 'COMPLETE':
+    elif raw['finish_reason'] == 'COMPLETE':
         finish_reason = FINISH_STOP
     else:
-        logging.warning(f"Finish reason: {response.finish_reason}")
+        logging.warning(f"Finish reason: {raw['finish_reason']}")
         return None
-    
-    return response.message.content[0].text, {
-        "raw_response": response.model_dump(mode="json"),
+
+    return raw['message']['content'][0]['text'], {
+        "raw_response": raw,
         "model": model,
         "temperature": temperature,
         "reasoning_trace": None,
-        "input_tokens": response.usage.billed_units.input_tokens,
-        "output_tokens": response.usage.billed_units.output_tokens,
+        "input_tokens": raw['usage']['billed_units']['input_tokens'],
+        "output_tokens": raw['usage']['billed_units']['output_tokens'],
         "thinking_tokens": 0,
         "finish_reason": finish_reason
     }

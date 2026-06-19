@@ -1,6 +1,11 @@
 import os
 import pandas as pd
+from tools.cache import get_cache, cache_key
 from tools.errors import ERROR_UNSUPPORTED_LANGUAGE, FINISH_STOP
+
+MODELS = {
+    "GoogleTranslate": {},
+}
 
 CLIENT = None
 SUPPORTED_LANGUAGES = None
@@ -27,21 +32,28 @@ def get_supported_languages(lang):
         return ERROR_UNSUPPORTED_LANGUAGE
         
 
-def translate_with_google_api(request, temperature=None):    
+def process(request, model=None):
     goog_translate_client = lazy_get_client()
 
     target_language = get_supported_languages(request['target_language'])
     if target_language == ERROR_UNSUPPORTED_LANGUAGE:
         return ERROR_UNSUPPORTED_LANGUAGE
 
-    result = goog_translate_client.translate(
-                    request['segment'],
-                    source_language=request['source_language'],
-                    target_language=target_language,
-                )
+    cache = get_cache("google_translate")
+    key = cache_key(model, request)
 
-    return result.get('translatedText'), {
-        "raw_response": result,
+    if key in cache:
+        raw = cache[key]
+    else:
+        raw = goog_translate_client.translate(
+            request['segment'],
+            source_language=request['source_language'],
+            target_language=target_language,
+        )
+        cache[key] = raw
+
+    return raw.get('translatedText'), {
+        "raw_response": raw,
         "model": None,
         "temperature": None,
         "reasoning_trace": None,

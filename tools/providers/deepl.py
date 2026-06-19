@@ -1,6 +1,10 @@
 import os
+from tools.cache import get_cache, cache_key
 from tools.errors import ERROR_UNSUPPORTED_LANGUAGE, FINISH_STOP
 
+MODELS = {
+    "DeepL": {},
+}
 
 CLIENT = None
 SUPPORTED_LANGUAGES = None
@@ -14,21 +18,30 @@ def lazy_get_client():
         SUPPORTED_LANGUAGES = {lang.code.lower() for lang in CLIENT.get_target_languages()}
     return CLIENT
 
-def translate_with_deepl(request, temperature=None):    
+
+def process(request, model=None):
     client = lazy_get_client()
 
     target_language = request['target_language'].split('_')[0]
     if target_language not in SUPPORTED_LANGUAGES:
         return ERROR_UNSUPPORTED_LANGUAGE
 
-    result = client.translate_text(
-                request['segment'],
-                source_lang=request['source_language'],
-                target_lang=target_language,
-            )
-    
-    return result.text, {
-        "raw_response": {"text": result.text, "detected_source_lang": result.detected_source_lang},
+    cache = get_cache("deepl")
+    key = cache_key(model, request)
+
+    if key in cache:
+        raw = cache[key]
+    else:
+        result = client.translate_text(
+            request['segment'],
+            source_lang=request['source_language'],
+            target_lang=target_language,
+        )
+        raw = {"text": result.text, "detected_source_lang": result.detected_source_lang}
+        cache[key] = raw
+
+    return raw['text'], {
+        "raw_response": raw,
         "model": None,
         "temperature": None,
         "reasoning_trace": None,

@@ -1,37 +1,50 @@
 import os
 import requests
+from tools.cache import get_cache, cache_key
 from tools.errors import ERROR_UNSUPPORTED_LANGUAGE, FINISH_STOP
+
+MODELS = {
+    "YandexTranslate": {},
+}
 
 ENDPOINT = "https://translate.api.cloud.yandex.net/translate/v2/translate"
 
 
-def translate_with_yandex(request, temperature=None):
+def process(request, model=None):
     assert 'YANDEX_API_KEY' in os.environ, 'Please set the environment variable YANDEX_API_KEY'
     assert 'YANDEX_FOLDER_ID' in os.environ, 'Please set the environment variable YANDEX_FOLDER_ID'
 
-    source_language = request['source_language']
-    target_language = request['target_language'].split("_")[0]  # Handle cases like 'en_US' to 'en'
+    cache = get_cache("yandex_translate")
+    key = cache_key(model, request)
 
-    body = {
-        "folderId": os.environ['YANDEX_FOLDER_ID'],
-        "sourceLanguageCode": source_language,
-        "targetLanguageCode": target_language,
-        "texts": [request['segment']],
-        "format": "PLAIN_TEXT",
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Api-Key {os.environ['YANDEX_API_KEY']}",
-    }
+    if key in cache:
+        response = cache[key]
+    else:
+        source_language = request['source_language']
+        target_language = request['target_language'].split("_")[0]  # Handle cases like 'en_US' to 'en'
 
-    http_request = requests.post(ENDPOINT, json=body, headers=headers)
-    response = http_request.json()
+        body = {
+            "folderId": os.environ['YANDEX_FOLDER_ID'],
+            "sourceLanguageCode": source_language,
+            "targetLanguageCode": target_language,
+            "texts": [request['segment']],
+            "format": "PLAIN_TEXT",
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Api-Key {os.environ['YANDEX_API_KEY']}",
+        }
 
-    if http_request.status_code != 200:
-        message = response.get('message', '')
-        if 'unsupported' in message.lower() and 'language' in message.lower():
-            return ERROR_UNSUPPORTED_LANGUAGE
-        raise RuntimeError(f"Yandex Translate API error: {http_request.status_code} - {message}")
+        http_request = requests.post(ENDPOINT, json=body, headers=headers)
+        response = http_request.json()
+
+        if http_request.status_code != 200:
+            message = response.get('message', '')
+            if 'unsupported' in message.lower() and 'language' in message.lower():
+                return ERROR_UNSUPPORTED_LANGUAGE
+            raise RuntimeError(f"Yandex Translate API error: {http_request.status_code} - {message}")
+
+        cache[key] = response
 
     return response['translations'][0]['text'], {
         "raw_response": response,

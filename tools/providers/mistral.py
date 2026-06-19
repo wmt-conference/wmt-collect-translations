@@ -1,6 +1,11 @@
 import os
 import logging
+from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_LENGTH, FINISH_STOP
+
+MODELS = {
+    "mistral-medium-3.5": {"max_tokens": 8192, "temperature": 0.0},
+}
 
 CLIENT = None
 def lazy_get_client():
@@ -14,15 +19,23 @@ def lazy_get_client():
         CLIENT = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
     return CLIENT
 
-def process_with_mistral_medium(request, max_tokens=None, temperature=None):
-    if max_tokens is None:
-        max_tokens = 8192
-    if temperature is None:
-        temperature = 0.0
-    return process_with_mistral(request, "mistral-medium-3.5", max_tokens=max_tokens, temperature=temperature)
 
-# setting max_tokens to None uses maximum allowed tokens of given model
-def process_with_mistral(request, model, max_tokens=None, temperature=0.0):
+def process(request, model, max_tokens, temperature):
+    cache = get_cache("mistral")
+    key = cache_key(model, request)
+
+    if key in cache:
+        raw = cache[key]
+    else:
+        raw = _call(request, model, max_tokens, temperature)
+        if raw is None:
+            return None
+        cache[key] = raw
+
+    return _extract(raw, temperature)
+
+
+def _call(request, model, max_tokens, temperature):
     client = lazy_get_client()
 
     messages = [{"role": "user", "content": request['prompt']}]
@@ -38,21 +51,24 @@ def process_with_mistral(request, model, max_tokens=None, temperature=0.0):
         logging.error(f"Error: {e}")
         return None
 
-    if response.choices[0].finish_reason == "stop":
+    return response.model_dump(mode="json")
+
+
+def _extract(raw, temperature):
+    if raw['choices'][0]['finish_reason'] == "stop":
         finish_reason = FINISH_STOP
-    elif response.choices[0].finish_reason == "length":
+    elif raw['choices'][0]['finish_reason'] == "length":
         finish_reason = FINISH_LENGTH
     else:
-       return None
+        return None
 
-    return response.choices[0].message.content, {
-        "raw_response": response.model_dump(mode="json"),
-        "model": response.model,
+    return raw['choices'][0]['message']['content'], {
+        "raw_response": raw,
+        "model": raw['model'],
         "temperature": temperature,
         "reasoning_trace": None,
-        "input_tokens": response.usage.prompt_tokens,
-        "output_tokens": response.usage.completion_tokens,
+        "input_tokens": raw['usage']['prompt_tokens'],
+        "output_tokens": raw['usage']['completion_tokens'],
         "thinking_tokens": 0,
         "finish_reason": finish_reason
     }
-

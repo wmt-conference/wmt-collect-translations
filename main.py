@@ -8,10 +8,10 @@ import ipdb
 import urllib.request
 import pandas as pd
 from absl import flags, app
-from tools.utils import collect_answers, SYSTEMS
+from tools.utils import collect_answers, MODELS
  
 
-flags.DEFINE_enum('system', 'CommandA', SYSTEMS, 'Define the system to use for translation')
+flags.DEFINE_enum('model', 'command-a-plus-05-2026', list(MODELS.keys()), 'Define the model to use for translation')
 flags.DEFINE_bool('parallel', False, 'Run in parallel mode (default: False)')
 
 FLAGS = flags.FLAGS
@@ -25,7 +25,7 @@ def main(args):
         # avoid clashes by shuffling samples
         blindset = blindset.sample(frac=1, random_state=42).reset_index(drop=True)
 
-    answers = collect_answers(blindset, FLAGS.system)
+    answers = collect_answers(blindset, FLAGS.model)
     df = pd.DataFrame(answers)
 
     # for each tgt_lang, count how many "FAILED" there are and if more than 25% are FAILED, remove that tgt_lang
@@ -36,7 +36,7 @@ def main(args):
 
     if not FLAGS.parallel:
         os.makedirs("wmt_translations", exist_ok=True)
-        df.to_json(f"wmt_translations/{FLAGS.system}.jsonl", orient='records', lines=True, force_ascii=False)
+        df.to_json(f"wmt_translations/{FLAGS.model.replace('/', '_')}.jsonl", orient='records', lines=True, force_ascii=False)
     else:
         print("Running in parallel mode, not saving results to disk as the data are shuffled.")
 

@@ -29,6 +29,8 @@ export ANTHROPIC_API_KEY=               # Anthropic key for claude
 ## Running translations
 
 ```
-python main.py --system='SYSTEM'
+python main.py --model='MODEL'
 ```
+
+`MODEL` is the API model id (e.g. `command-a-plus-05-2026`); the owning provider and its default parameters are resolved from the per-provider `MODELS` configs in `tools/providers/`. Non-LLM translators are invoked by name (`DeepL`, `GoogleTranslate`, `YandexTranslate`, `MicrosoftTranslator`).
 

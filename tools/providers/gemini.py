@@ -1,82 +1,48 @@
 import os
-import json
 import logging
+from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
+MODELS = {
+    "gemini-3.1-pro-preview": {"max_tokens": 65536, "temperature": 0.0},
+    "gemma-3-12b-it": {"max_tokens": 32768, "temperature": 0.0},
+    "gemma-3-27b-it": {"max_tokens": 32768, "temperature": 0.0},
+}
+
 CLIENT = None
-gemini_cache = {}
 def lazy_get_client():
     global CLIENT
-    global gemini_cache
 
-    # for WMT25 to speed up, we used a separate script which didn't have backup mechanisms. Thus after collecting the translations, we fill the gaps with original script
-    if len(gemini_cache) == 0:
-        with open("gemini_cache.jsonl", "r") as f:
-            for line in f:
-                entry = json.loads(line)
-                if "response" in entry and "candidates" in entry['response']:
-                    if entry['response']['candidates'][0]['finishReason'] == "STOP":
-                        gemini_cache[entry["key"]] = entry['response']
-
-    
     if CLIENT is None:
         from google import genai
-        
         assert "GEMINI_API_KEY" in os.environ, "Please set the GEMINI_API_KEY environment variable"
-
         CLIENT = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     return CLIENT
 
-def process_with_gemini_2_5_pro(request, max_tokens=None, temperature=None):
-    if max_tokens is None:
-        max_tokens = 65536
-    if temperature is None:
-        temperature = 0.0
-    return translate_with_gemini(request, "gemini-3.1-pro-preview", max_tokens=max_tokens, temperature=temperature)
 
-def process_with_gemma_3_12b(request, max_tokens=None, temperature=None):
-    if max_tokens is None:
-        max_tokens = 32768
-    if temperature is None:
-        temperature = 0.0
-    return translate_with_gemini(request, "gemma-3-12b-it", max_tokens=max_tokens, temperature=temperature)
+def process(request, model, max_tokens, temperature):
+    cache = get_cache("gemini")
+    key = cache_key(model, request)
 
-def process_with_gemma_3_27b(request, max_tokens=None, temperature=None):
-    if max_tokens is None:
-        max_tokens = 32768
-    if temperature is None:
-        temperature = 0.0
-    return translate_with_gemini(request, "gemma-3-27b-it", max_tokens=max_tokens, temperature=temperature)
+    if key in cache:
+        raw = cache[key]
+    else:
+        raw = _call(request, model, max_tokens, temperature)
+        if raw is None:
+            return None
+        cache[key] = raw
+
+    return _extract(raw, temperature)
 
 
-
-def translate_with_gemini(request, model, max_tokens, temperature=0.0):
+def _call(request, model, max_tokens, temperature):
     client = lazy_get_client()
     from google.genai import types
 
-    # if len(gemini_cache) > 0:
-    #     import hashlib
-    #     if "doc_id" in request:
-    #         hashid = f"{request['doc_id']}_{request['source_language']}_{request['target_language']}_{request['segment']}_{request['prompt_instruction']}"
-
-    #     else:
-    #         hashid = f"{request['taskid']}_{request['prompt']}"
-    #     hashid = hashlib.md5(hashid.encode("utf-8")).hexdigest()
-    #     if hashid in gemini_cache:
-    #         result = gemini_cache[hashid]
-    #         input_tokens = result['usageMetadata']['promptTokenCount']
-    #         candidate_tokens = result['usageMetadata']['candidatesTokenCount']
-    #         thinking_tokens = result['usageMetadata']['thoughtsTokenCount']
-    #         return result['candidates'][0]['content']['parts'][0]['text'], {"input_tokens": input_tokens,
-    #                         "output_tokens": candidate_tokens + thinking_tokens,
-    #                         "thinking_tokens": thinking_tokens}
-
-    
     config = types.GenerateContentConfig(
         temperature=temperature,
         max_output_tokens=max_tokens,
         response_mime_type="text/plain",
-        # thinking_config=types.ThinkingConfig(thinking_budget=128),
         safety_settings=[
             types.SafetySetting(category=category, threshold=types.HarmBlockThreshold.BLOCK_NONE)
             for category in [
@@ -101,30 +67,36 @@ def translate_with_gemini(request, model, max_tokens, temperature=0.0):
     if response.candidates is None:
         return None
 
-    if response.candidates[0].finish_reason == "MAX_TOKENS":
+    return response.model_dump(mode="json")
+
+
+def _extract(raw, temperature):
+    if raw['candidates'][0]['finish_reason'] == "MAX_TOKENS":
         finish_reason = FINISH_LENGTH
-    elif response.candidates[0].finish_reason == "STOP":
+    elif raw['candidates'][0]['finish_reason'] == "STOP":
         finish_reason = FINISH_STOP
     else:
-        logging.warning(f"Finish reason: {response.candidates[0].finish_reason}; {response.text}")
+        logging.warning(f"Finish reason: {raw['candidates'][0]['finish_reason']}")
         return None
 
-    input_tokens = response.usage_metadata.prompt_token_count
-    candidate_tokens = response.usage_metadata.candidates_token_count
-    thinking_tokens = response.usage_metadata.thoughts_token_count
+    input_tokens = raw['usage_metadata']['prompt_token_count']
+    candidate_tokens = raw['usage_metadata']['candidates_token_count']
+    thinking_tokens = raw['usage_metadata']['thoughts_token_count']
 
     if candidate_tokens is None:
         # gemma has only total prompt token count which equals to input tokens
         candidate_tokens = 0
-    
+
     if thinking_tokens is None:
         thinking_tokens = 0
-    
-    return response.text, {"raw_response": response.model_dump(mode="json"),
-                           "model": response.model_version,
-                           "temperature": temperature,
-                           "reasoning_trace": None,
-                           "input_tokens": input_tokens,
-                           "output_tokens": candidate_tokens + thinking_tokens,
-                           "thinking_tokens": thinking_tokens, 
-                           "finish_reason": finish_reason}
+
+    text = "".join(part['text'] for part in raw['candidates'][0]['content']['parts'] if part.get('text'))
+
+    return text, {"raw_response": raw,
+                  "model": raw['model_version'],
+                  "temperature": temperature,
+                  "reasoning_trace": None,
+                  "input_tokens": input_tokens,
+                  "output_tokens": candidate_tokens + thinking_tokens,
+                  "thinking_tokens": thinking_tokens,
+                  "finish_reason": finish_reason}

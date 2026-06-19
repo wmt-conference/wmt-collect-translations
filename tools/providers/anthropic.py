@@ -1,6 +1,11 @@
 import os
 import logging
+from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
+
+MODELS = {
+    "claude-sonnet-4-5-20250929": {"max_tokens": 16384, "temperature": 0.0},
+}
 
 CLIENT = None
 def lazy_get_client():
@@ -13,14 +18,22 @@ def lazy_get_client():
     return CLIENT
 
 
-def process_with_claude_4(request, max_tokens=None, temperature=None):
-    if max_tokens is None:
-        max_tokens = 16384
-    if temperature is None:
-        temperature = 0.0
-    return process_with_anthropic(request, "claude-sonnet-4-5-20250929", max_tokens=max_tokens, temperature=temperature)
+def process(request, model, max_tokens, temperature):
+    cache = get_cache("anthropic")
+    key = cache_key(model, request)
 
-def process_with_anthropic(request, model, max_tokens, temperature=0.0):
+    if key in cache:
+        raw = cache[key]
+    else:
+        raw = _call(request, model, max_tokens, temperature)
+        if raw is None:
+            return None
+        cache[key] = raw
+
+    return _extract(raw, temperature)
+
+
+def _call(request, model, max_tokens, temperature):
     client = lazy_get_client()
 
     response = client.messages.create(
@@ -30,23 +43,25 @@ def process_with_anthropic(request, model, max_tokens, temperature=0.0):
         messages=[{"role": "user", "content": request['prompt']}]
     )
 
-    if response.stop_reason == "max_tokens":
+    return response.model_dump(mode="json")
+
+
+def _extract(raw, temperature):
+    if raw['stop_reason'] == "max_tokens":
         finish_reason = FINISH_LENGTH
-    elif response.stop_reason == "end_turn":
+    elif raw['stop_reason'] == "end_turn":
         finish_reason = FINISH_STOP
     else:
-        logging.warning(f"Finish reason: {response.stop_reason}; {response.content[0].text}")
+        logging.warning(f"Finish reason: {raw['stop_reason']}; {raw['content'][0]['text']}")
         return None
 
-
-    return response.content[0].text, {
-        "raw_response": response.model_dump(mode="json"),
-        "model": response.model,
+    return raw['content'][0]['text'], {
+        "raw_response": raw,
+        "model": raw['model'],
         "temperature": temperature,
         "reasoning_trace": None,
-        "input_tokens": response.usage.input_tokens,
-        "output_tokens": response.usage.output_tokens,
+        "input_tokens": raw['usage']['input_tokens'],
+        "output_tokens": raw['usage']['output_tokens'],
         "thinking_tokens": 0,
         "finish_reason": finish_reason
     }
-
