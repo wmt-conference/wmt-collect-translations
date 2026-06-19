@@ -2,7 +2,29 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, List, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
+
+
+@dataclass(frozen=True)
+class DecodingConfig:
+    """A named decoding/generation variant for an experiment.
+
+    ``method`` selects the search strategy: ``greedy`` (argmax), ``sample``
+    (temperature/top-p nucleus sampling) or ``beam`` (beam search). ``thinking``
+    toggles a model's reasoning channel where supported (e.g. Qwen
+    ``enable_thinking``, gpt-oss ``reasoning_effort``); ``None`` keeps the safe
+    default (reasoning suppressed). ``max_new_tokens`` optionally overrides the
+    per-model generation length for this variant.
+    """
+
+    name: str = "default"
+    method: str = "greedy"
+    temperature: float = 0.0
+    top_p: float = 1.0
+    num_beams: int = 1
+    thinking: Optional[bool] = None
+    seed: Optional[int] = None
+    max_new_tokens: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -20,6 +42,8 @@ class RuntimeModelConfig:
     track: str = ""
     run_scope: str = ""
     notes: str = ""
+    variants: Tuple[DecodingConfig, ...] = field(default_factory=tuple)
+
 
 
 @dataclass(frozen=True)
@@ -73,8 +97,7 @@ class BaseBackend:
         *,
         max_input_length: int,
         max_new_tokens: int,
-        temperature: float,
-        top_p: float,
+        decoding: "DecodingConfig",
     ) -> List[TranslationResult]:
         raise NotImplementedError()
 

@@ -11,13 +11,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterator, List, Sequence, Tuple
 
+import yaml
+
 from io_utils import JsonlWriter, iter_jsonl, normalize_source_text, read_json
-from interfaces import RuntimeModelConfig, TranslationRequest, TranslationResult, utc_timestamp
+from interfaces import DecodingConfig, RuntimeModelConfig, TranslationRequest, TranslationResult, utc_timestamp
 from offline import create_offline_backend
 
 
 REQUIRED_INPUT_FIELDS = ("doc_id", "source_doc", "tgt_lang", "instruction")
-DEFAULT_REGISTRY = Path(__file__).resolve().parent / "model_registry.wmt26.json"
+DEFAULT_REGISTRY = Path(__file__).resolve().parent / "model_registry.wmt26.yaml"
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "outputs"
 DEFAULT_LOG_DIR = Path(__file__).resolve().parent / "logs"
 
@@ -25,12 +27,56 @@ DEFAULT_LOG_DIR = Path(__file__).resolve().parent / "logs"
 class Job:
     model_key: str
     config: RuntimeModelConfig
-    output_path: Path
-    failure_path: Path
+    variants: Tuple[DecodingConfig, ...]
+    output_dir: Path
+    log_dir: Path
+
+def read_registry_file(path: Path) -> Dict[str, object]:
+    text = path.read_text(encoding="utf-8")
+    if path.suffix.lower() in (".yaml", ".yml"):
+        return yaml.safe_load(text)
+    return read_json(path)
+
+
+VALID_DECODING_METHODS = ("greedy", "sample", "beam")
+
+
+def parse_decoding_config(name: str, raw: object) -> DecodingConfig:
+    raw = raw or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"variant '{name}' must be a mapping, got {type(raw).__name__}")
+    method = str(raw.get("method", "greedy")).lower()
+    if method not in VALID_DECODING_METHODS:
+        raise ValueError(f"variant '{name}': method must be one of {VALID_DECODING_METHODS}, got '{method}'")
+    thinking = raw.get("thinking", None)
+    if thinking is not None:
+        thinking = bool(thinking)
+    return DecodingConfig(
+        name=name,
+        method=method,
+        temperature=float(raw.get("temperature", 0.0)),
+        top_p=float(raw.get("top_p", 1.0)),
+        num_beams=int(raw.get("num_beams", 1)),
+        thinking=thinking,
+        seed=(int(raw["seed"]) if raw.get("seed") is not None else None),
+        max_new_tokens=(int(raw["max_new_tokens"]) if raw.get("max_new_tokens") is not None else None),
+    )
+
+
+def parse_variants(raw_config: Dict[str, object]) -> Tuple[DecodingConfig, ...]:
+    raw_variants = raw_config.get("variants")
+    if not raw_variants:
+        # No variants declared: a single implicit greedy variant that maps to the
+        # bare model key (preserves the pre-variant output layout).
+        return (DecodingConfig(name="default", method="greedy"),)
+    if not isinstance(raw_variants, dict):
+        raise ValueError("'variants' must be a mapping of variant_name -> decoding config")
+    return tuple(parse_decoding_config(str(name), cfg) for name, cfg in raw_variants.items())
+
 
 def load_model_registry(path: Path) -> Dict[str, RuntimeModelConfig]:
-    payload = read_json(path)
-    models = payload.get("models")
+    payload = read_registry_file(path)
+    models = payload.get("models") if isinstance(payload, dict) else None
     if not isinstance(models, dict):
         raise ValueError(f"Model registry must contain a top-level 'models' object: {path}")
 
@@ -52,8 +98,10 @@ def load_model_registry(path: Path) -> Dict[str, RuntimeModelConfig]:
             track=str(raw_config.get("track", "")),
             run_scope=str(raw_config.get("run_scope", "")),
             notes=str(raw_config.get("notes", "")),
+            variants=parse_variants(raw_config),
         )
     return registry
+
 
 
 def resolve_models(raw_models: Sequence[str], registry: Dict[str, RuntimeModelConfig]) -> List[RuntimeModelConfig]:
@@ -129,36 +177,64 @@ def load_input_records(path: Path, limit: int | None) -> List[TranslationRequest
     return records
 
 
-def output_path_for(output_dir: Path, model_key: str) -> Path:
-    return output_dir / model_key / f"{model_key}.translations.jsonl"
+def run_key_for(model_key: str, variant: DecodingConfig) -> str:
+    """Output stream key for a (model, variant) pair.
+
+    The implicit greedy "default" variant maps to the bare model key so a plain
+    `run --models X` keeps the pre-variant output layout; named variants get a
+    `<model>__<variant>` suffix so each is a self-contained, comparable stream.
+    """
+    if variant.name in ("", "default"):
+        return model_key
+    return f"{model_key}__{variant.name}"
 
 
-def failure_path_for(log_dir: Path, model_key: str) -> Path:
-    return log_dir / model_key / f"{model_key}.failures.jsonl"
+def select_variants(model: RuntimeModelConfig, requested: Sequence[str] | None) -> Tuple[DecodingConfig, ...]:
+    if not requested or list(requested) == ["all"]:
+        return model.variants
+    by_name = {v.name: v for v in model.variants}
+    chosen: List[DecodingConfig] = []
+    for name in requested:
+        if name not in by_name:
+            available = ", ".join(by_name) or "(none)"
+            raise ValueError(f"{model.key}: unknown variant '{name}'. Available: {available}")
+        chosen.append(by_name[name])
+    return tuple(chosen)
 
 
-def load_completed_keys(output_path: Path, model_key: str) -> set[Tuple[str, str, str]]:
+def output_path_for(output_dir: Path, run_key: str) -> Path:
+    return output_dir / run_key / f"{run_key}.translations.jsonl"
+
+
+def failure_path_for(log_dir: Path, run_key: str) -> Path:
+    return log_dir / run_key / f"{run_key}.failures.jsonl"
+
+
+def load_completed_keys(output_path: Path, run_key: str) -> set[Tuple[str, str, str]]:
     if not output_path.exists():
         return set()
     completed: set[Tuple[str, str, str]] = set()
     for _, payload in iter_jsonl(output_path):
         doc_id = str(payload.get("doc_id", ""))
         tgt_lang = str(payload.get("tgt_lang", ""))
-        row_model_key = str(payload.get("model_key", ""))
-        if doc_id and tgt_lang and row_model_key == model_key:
-            completed.add((doc_id, tgt_lang, row_model_key))
+        # Match on the stream's run_key (falling back to model_key for files
+        # written before variants existed).
+        row_key = str(payload.get("run_key", payload.get("model_key", "")))
+        if doc_id and tgt_lang and row_key == run_key:
+            completed.add((doc_id, tgt_lang, row_key))
     return completed
+
 
 
 def build_output_row(
     result: TranslationResult,
     *,
+    run_key: str,
     backend: str,
     batch_size: int,
     max_input_length: int,
     max_new_tokens: int,
-    temperature: float,
-    top_p: float,
+    decoding: DecodingConfig,
 ) -> Dict[str, object]:
     record = result.request
     row = dict(record.raw)
@@ -166,6 +242,8 @@ def build_output_row(
         "doc_id": record.doc_id,
         "tgt_lang": record.tgt_lang,
         "model_key": result.model_key,
+        "run_key": run_key,
+        "variant": decoding.name,
         "model": result.model_id,
         "backend": result.backend or backend,
         "translation": result.translation,
@@ -174,19 +252,24 @@ def build_output_row(
             "batch_size": batch_size,
             "max_input_length": max_input_length,
             "max_new_tokens": max_new_tokens,
-            "temperature": temperature,
-            "top_p": top_p,
+            "method": decoding.method,
+            "temperature": decoding.temperature,
+            "top_p": decoding.top_p,
+            "num_beams": decoding.num_beams,
+            "thinking": decoding.thinking,
+            "seed": decoding.seed,
         },
         "metadata": result.metadata,
     })
     return row
 
 
-def build_failure_row(record: TranslationRequest, model_config: RuntimeModelConfig, error: str) -> Dict[str, object]:
+def build_failure_row(record: TranslationRequest, model_config: RuntimeModelConfig, run_key: str, error: str) -> Dict[str, object]:
     return {
         "doc_id": record.doc_id,
         "tgt_lang": record.tgt_lang,
         "model_key": model_config.key,
+        "run_key": run_key,
         "model": model_config.model_id,
         "error": error,
         "timestamp": utc_timestamp(),
@@ -201,34 +284,50 @@ def iter_batches(records: Sequence[TranslationRequest], batch_size: int) -> Iter
         yield list(records[start:start + batch_size])
 
 
-def build_jobs(models: Sequence[RuntimeModelConfig], output_dir: Path, log_dir: Path) -> List[Job]:
-    return [
-        Job(
+def build_jobs(models: Sequence[RuntimeModelConfig], requested_variants: Sequence[str] | None,
+               output_dir: Path, log_dir: Path) -> List[Job]:
+    jobs: List[Job] = []
+    for model in models:
+        variants = select_variants(model, requested_variants)
+        if not variants:
+            continue
+        jobs.append(Job(
             model_key=model.key,
             config=model,
-            output_path=output_path_for(output_dir, model.key),
-            failure_path=failure_path_for(log_dir, model.key),
-        )
-        for model in models
-    ]
+            variants=variants,
+            output_dir=output_dir,
+            log_dir=log_dir,
+        ))
+    return jobs
 
 
 def run_job(args: argparse.Namespace, job: Job, records: Sequence[TranslationRequest]) -> Tuple[int, int]:
     backend = args.backend if args.backend != "registry" else job.config.backend
     batch_size = args.batch_size if args.batch_size is not None else job.config.default_batch_size
     max_input_length = args.max_input_length if args.max_input_length is not None else job.config.default_max_input_length
-    max_new_tokens = args.max_new_tokens if args.max_new_tokens is not None else job.config.default_max_new_tokens
 
-    completed = load_completed_keys(job.output_path, job.model_key) if args.resume else set()
-    pending = [
-        record for record in records
-        if (record.doc_id, record.tgt_lang, job.model_key) not in completed
-    ]
-    print(
-        f"Job {job.model_key}: total={len(records)} pending={len(pending)} resumed={len(records) - len(pending)} output={job.output_path}",
-        flush=True,
-    )
-    if not pending:
+    # Figure out which variants still have pending work, so a model is only loaded
+    # when at least one of its variants needs to run.
+    plan: List[Tuple[DecodingConfig, str, Path, Path, List[TranslationRequest], int]] = []
+    for variant in job.variants:
+        run_key = run_key_for(job.model_key, variant)
+        output_path = output_path_for(job.output_dir, run_key)
+        failure_path = failure_path_for(job.log_dir, run_key)
+        max_new_tokens = (
+            args.max_new_tokens if args.max_new_tokens is not None
+            else (variant.max_new_tokens if variant.max_new_tokens is not None else job.config.default_max_new_tokens)
+        )
+        completed = load_completed_keys(output_path, run_key) if args.resume else set()
+        pending = [r for r in records if (r.doc_id, r.tgt_lang, run_key) not in completed]
+        print(
+            f"Job {run_key}: total={len(records)} pending={len(pending)} "
+            f"resumed={len(records) - len(pending)} method={variant.method} output={output_path}",
+            flush=True,
+        )
+        if pending:
+            plan.append((variant, run_key, output_path, failure_path, pending, max_new_tokens))
+
+    if not plan:
         return 0, 0
 
     backend_runner = create_offline_backend(
@@ -241,44 +340,47 @@ def run_job(args: argparse.Namespace, job: Job, records: Sequence[TranslationReq
     )
     backend_runner.load()
 
-    success_count = 0
-    failure_count = 0
-    with JsonlWriter(job.output_path) as output_writer, JsonlWriter(job.failure_path) as failure_writer:
-        for batch in iter_batches(pending, batch_size):
-            try:
-                results = backend_runner.translate_batch(
-                    batch,
-                    max_input_length=max_input_length,
-                    max_new_tokens=max_new_tokens,
-                    temperature=args.temperature,
-                    top_p=args.top_p,
-                )
-                if len(results) != len(batch):
-                    raise RuntimeError(f"expected {len(batch)} translations but received {len(results)}")
-            except Exception as exc:
-                for record in batch:
-                    failure_writer.write(build_failure_row(record, job.config, f"batch failed: {exc}"))
-                    failure_count += 1
-                continue
-
-            for result in results:
-                if not result.translation:
-                    failure_writer.write(build_failure_row(result.request, job.config, "empty translation"))
-                    failure_count += 1
+    total_success = 0
+    total_failure = 0
+    for variant, run_key, output_path, failure_path, pending, max_new_tokens in plan:
+        success_count = 0
+        failure_count = 0
+        with JsonlWriter(output_path) as output_writer, JsonlWriter(failure_path) as failure_writer:
+            for batch in iter_batches(pending, batch_size):
+                try:
+                    results = backend_runner.translate_batch(
+                        batch,
+                        max_input_length=max_input_length,
+                        max_new_tokens=max_new_tokens,
+                        decoding=variant,
+                    )
+                    if len(results) != len(batch):
+                        raise RuntimeError(f"expected {len(batch)} translations but received {len(results)}")
+                except Exception as exc:
+                    for record in batch:
+                        failure_writer.write(build_failure_row(record, job.config, run_key, f"batch failed: {exc}"))
+                        failure_count += 1
                     continue
-                output_writer.write(build_output_row(
-                    result,
-                    backend=backend,
-                    batch_size=batch_size,
-                    max_input_length=max_input_length,
-                    max_new_tokens=max_new_tokens,
-                    temperature=args.temperature,
-                    top_p=args.top_p,
-                ))
-                success_count += 1
 
-    print(f"Completed {job.model_key}: wrote={success_count} failures={failure_count}", flush=True)
-    return success_count, failure_count
+                for result in results:
+                    if not result.translation:
+                        failure_writer.write(build_failure_row(result.request, job.config, run_key, "empty translation"))
+                        failure_count += 1
+                        continue
+                    output_writer.write(build_output_row(
+                        result,
+                        run_key=run_key,
+                        backend=backend,
+                        batch_size=batch_size,
+                        max_input_length=max_input_length,
+                        max_new_tokens=max_new_tokens,
+                        decoding=variant,
+                    ))
+                    success_count += 1
+        print(f"Completed {run_key}: wrote={success_count} failures={failure_count}", flush=True)
+        total_success += success_count
+        total_failure += failure_count
+    return total_success, total_failure
 
 
 def parse_gpu_ids(raw_gpus: str) -> List[str]:
@@ -328,11 +430,9 @@ def build_run_command(args: argparse.Namespace, model: RuntimeModelConfig) -> Li
         str(args.log_dir.resolve()),
         "--backend",
         args.backend,
-        "--temperature",
-        str(args.temperature),
-        "--top-p",
-        str(args.top_p),
     ]
+    if args.variants and list(args.variants) != ["all"]:
+        command.extend(["--variants", *args.variants])
     if args.limit is not None:
         command.extend(["--limit", str(args.limit)])
     if args.batch_size is not None:
@@ -355,13 +455,14 @@ def build_run_command(args: argparse.Namespace, model: RuntimeModelConfig) -> Li
 
 def command_list_models(args: argparse.Namespace) -> int:
     registry = load_model_registry(args.model_registry)
-    print("model_key\thf_id\tbackend\ttp\tbatch\tmax_input\tmax_new\ttrack\trun_scope\tgated\tnotes")
+    print("model_key\thf_id\tbackend\ttp\tbatch\tmax_input\tmax_new\ttrack\trun_scope\tgated\tvariants\tnotes")
     for model in registry.values():
+        variants = ",".join(v.name for v in model.variants)
         print(
             f"{model.key}\t{model.model_id}\t{model.backend}\t{model.tensor_parallel_size}\t"
             f"{model.default_batch_size}\t{model.default_max_input_length}\t{model.default_max_new_tokens}\t"
             f"{model.track}\t{model.run_scope}\t"
-            f"{str(model.gated).lower()}\t{model.notes}"
+            f"{str(model.gated).lower()}\t{variants}\t{model.notes}"
         )
     return 0
 
@@ -424,7 +525,7 @@ def command_run(args: argparse.Namespace) -> int:
         print("No non-empty source_doc records selected.", file=sys.stderr)
         return 2
 
-    jobs = build_jobs(selected_models, args.output_dir, args.log_dir)
+    jobs = build_jobs(selected_models, args.variants, args.output_dir, args.log_dir)
     total_failures = 0
     total_written = 0
     for job in jobs:
@@ -596,15 +697,14 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
 
 def add_runtime_args(parser: argparse.ArgumentParser) -> None:
     add_common_args(parser)
+    parser.add_argument("--variants", nargs="+", default=["all"], help="Decoding variant names from the registry to run, or 'all'. Each variant is a separate output stream.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Root output directory.")
     parser.add_argument("--log-dir", type=Path, default=DEFAULT_LOG_DIR, help="Root failure-log directory.")
     parser.add_argument("--backend", choices=("registry", "auto", "hf", "vllm"), default="registry", help="Use the registry backend, or force auto (vLLM with HF fallback), hf, or vllm.")
     parser.add_argument("--limit", type=int, default=None, help="Maximum number of non-empty rows to run.")
     parser.add_argument("--batch-size", type=int, default=None, help="Override per-model batch size.")
     parser.add_argument("--max-input-length", type=int, default=None, help="Override per-model prompt truncation length.")
-    parser.add_argument("--max-new-tokens", type=int, default=None, help="Override per-model generation length.")
-    parser.add_argument("--temperature", type=float, default=0.0, help="Generation temperature. 0 means greedy decoding.")
-    parser.add_argument("--top-p", type=float, default=1.0, help="Nucleus sampling value when temperature > 0.")
+    parser.add_argument("--max-new-tokens", type=int, default=None, help="Override per-model/variant generation length.")
     parser.add_argument("--device-map", default="auto", help="Transformers device_map for --backend hf (e.g. auto, balanced).")
     parser.add_argument("--gpu-memory-utilization", type=float, default=0.9, help="Fraction of each visible GPU's memory Accelerate/vLLM may use.")
     parser.add_argument("--max-gpu-memory", default=None, help="Per-GPU memory cap for --backend hf (e.g. '72GiB'). Overrides --gpu-memory-utilization when set.")

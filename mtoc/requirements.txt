@@ -6,3 +6,4 @@ sentencepiece
 protobuf
 safetensors
 hf_transfer
+PyYAML

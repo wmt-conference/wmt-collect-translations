@@ -4,27 +4,45 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
-from interfaces import BaseBackend, RuntimeModelConfig, TranslationRequest, TranslationResult
+from interfaces import BaseBackend, DecodingConfig, RuntimeModelConfig, TranslationRequest, TranslationResult
 
 
 def _is_gpt_oss(model_config: RuntimeModelConfig) -> bool:
     return "gpt-oss" in model_config.model_id.lower() or "gpt_oss" in model_config.key.lower()
 
 
-def _apply_chat_template(tokenizer: Any, messages: List[Dict[str, str]], *, tokenize: bool, return_dict: bool, gpt_oss: bool) -> Any:
-    """Apply a chat template, suppressing reasoning where the model supports it.
+def _apply_chat_template(
+    tokenizer: Any,
+    messages: List[Dict[str, str]],
+    *,
+    tokenize: bool,
+    return_dict: bool,
+    gpt_oss: bool,
+    thinking: bool | None = None,
+) -> Any:
+    """Apply a chat template, toggling the model's reasoning channel.
 
     gpt-oss honours ``reasoning_effort`` (Harmony format); Qwen-style models honour
-    ``enable_thinking=False``. Both are passed opportunistically and we degrade to a
-    plain template when the tokenizer rejects an unknown kwarg.
+    ``enable_thinking``. ``thinking`` selects the behaviour:
+      - ``False`` / ``None`` (default): suppress reasoning (the safe default that
+        keeps short, direct translations).
+      - ``True``: enable reasoning (``enable_thinking=True`` / a higher
+        ``reasoning_effort``).
+    Each candidate kwarg set is tried in turn and we degrade to a plain template
+    when the tokenizer rejects an unknown kwarg.
     """
     base: Dict[str, Any] = {"add_generation_prompt": True}
     if return_dict:
         base["return_dict"] = True
     attempts: List[Dict[str, Any]] = []
-    if gpt_oss:
-        attempts.append({**base, "reasoning_effort": "low"})
-    attempts.append({**base, "enable_thinking": False})
+    if thinking is True:
+        if gpt_oss:
+            attempts.append({**base, "reasoning_effort": "high"})
+        attempts.append({**base, "enable_thinking": True})
+    else:
+        if gpt_oss:
+            attempts.append({**base, "reasoning_effort": "low"})
+        attempts.append({**base, "enable_thinking": False})
     attempts.append(base)
     last_exc: Exception | None = None
     for kwargs in attempts:
@@ -198,11 +216,10 @@ class HfCausalLmAdapter(BaseBackend):
         *,
         max_input_length: int,
         max_new_tokens: int,
-        temperature: float,
-        top_p: float,
+        decoding: DecodingConfig,
     ) -> List[TranslationResult]:
         self.load()
-        encoded = self._encode_requests(requests, max_input_length)
+        encoded = self._encode_requests(requests, max_input_length, decoding)
         encoded = self._move_inputs(encoded)
         prompt_width = encoded["input_ids"].shape[1]
 
@@ -210,16 +227,25 @@ class HfCausalLmAdapter(BaseBackend):
             "max_new_tokens": max_new_tokens,
             "pad_token_id": self.tokenizer.pad_token_id,
             "use_cache": self._use_cache,
-            # Curb runaway repetition/paraphrase loops on greedy decoding.
+            # Curb runaway repetition/paraphrase loops.
             "repetition_penalty": 1.1,
             "no_repeat_ngram_size": 4,
         }
         eos_token_id = self._resolve_eos_token_id()
         if eos_token_id is not None:
             generation_kwargs["eos_token_id"] = eos_token_id
-        if temperature > 0:
-            generation_kwargs.update({"do_sample": True, "temperature": temperature, "top_p": top_p})
-        else:
+
+        if decoding.method == "sample":
+            generation_kwargs.update({"do_sample": True, "temperature": decoding.temperature, "top_p": decoding.top_p})
+            if decoding.seed is not None:
+                self.torch.manual_seed(decoding.seed)
+        elif decoding.method == "beam":
+            generation_kwargs.update({
+                "do_sample": False,
+                "num_beams": max(2, decoding.num_beams),
+                "early_stopping": True,
+            })
+        else:  # greedy
             generation_kwargs.update({"do_sample": False})
 
         with self.torch.inference_mode():
@@ -240,14 +266,15 @@ class HfCausalLmAdapter(BaseBackend):
             ))
         return results
 
-    def _encode_requests(self, requests: Sequence[TranslationRequest], max_input_length: int) -> Dict[str, Any]:
+    def _encode_requests(self, requests: Sequence[TranslationRequest], max_input_length: int,
+                         decoding: DecodingConfig) -> Dict[str, Any]:
         # Prefer direct chat-template tokenization (token ids) over rendering to a
         # string and re-encoding. The string round-trip mangles special tokens for
         # backends like MistralCommon, producing literal <s>/[INST] artifacts and
         # occasional empty generations.
         if self._uses_chat_template:
             token_id_lists = [
-                self._chat_template_ids(request.prompt(), max_input_length) for request in requests
+                self._chat_template_ids(request.prompt(), max_input_length, decoding) for request in requests
             ]
             return self._left_pad(token_id_lists)
         prompts = [request.prompt() for request in requests]
@@ -259,10 +286,11 @@ class HfCausalLmAdapter(BaseBackend):
             max_length=max_input_length,
         )
 
-    def _chat_template_ids(self, prompt: str, max_input_length: int) -> List[int]:
+    def _chat_template_ids(self, prompt: str, max_input_length: int, decoding: DecodingConfig) -> List[int]:
         messages = [{"role": "user", "content": prompt}]
         encoded = _apply_chat_template(
-            self.tokenizer, messages, tokenize=True, return_dict=True, gpt_oss=self._is_gpt_oss
+            self.tokenizer, messages, tokenize=True, return_dict=True,
+            gpt_oss=self._is_gpt_oss, thinking=decoding.thinking,
         )
         ids = list(encoded["input_ids"])
         if max_input_length and len(ids) > max_input_length:
@@ -454,49 +482,19 @@ class VllmAdapter(BaseBackend):
         *,
         max_input_length: int,
         max_new_tokens: int,
-        temperature: float,
-        top_p: float,
+        decoding: DecodingConfig,
     ) -> List[TranslationResult]:
         self.load()
-        try:
-            from vllm import SamplingParams
-        except ImportError as exc:
-            raise RuntimeError("vllm is required for --backend vllm") from exc
+        rendered_prompts = [self._render_prompt(request.prompt(), decoding.thinking) for request in requests]
 
-        prompts = [request.prompt() for request in requests]
-        rendered_prompts = [self._render_prompt(prompt) for prompt in prompts]
-        # Anti-repetition defaults: break the degenerate reasoning loops gpt-oss
-        # falls into on low-resource target languages (which otherwise exhaust the
-        # token budget before emitting a final answer). repetition_penalty curbs
-        # token reuse and frequency_penalty ramps up as a token repeats, so severe
-        # loops are suppressed while normal translation is barely affected. vLLM
-        # has no no_repeat_ngram_size, so these penalties stand in for the HF path.
-        #
-        # min_tokens=2 forbids an immediate end-of-sequence: some models (notably
-        # Mistral-Medium on certain legal/social prompts) otherwise pick EOS as the
-        # very first token and return an empty string. Forcing at least one real
-        # token makes them translate normally; it is harmless for normal inputs.
-        sampling_kwargs: Dict[str, Any] = dict(
-            max_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            repetition_penalty=1.1,
-            frequency_penalty=0.3,
-            min_tokens=2,
-        )
-        if self._is_gpt_oss:
-            # gpt-oss prepends a Harmony reasoning channel before the answer, so a
-            # 2-token floor is meaningless there; keep it but it never bites.
-            pass
-        try:
-            sampling_params = SamplingParams(**sampling_kwargs)
-        except TypeError:
-            sampling_kwargs.pop("min_tokens", None)
-            sampling_params = SamplingParams(**sampling_kwargs)
-        outputs = self.llm.generate(rendered_prompts, sampling_params)
+        if decoding.method == "beam":
+            texts = self._beam_search(rendered_prompts, decoding, max_new_tokens)
+        else:
+            texts = self._sample_or_greedy(rendered_prompts, decoding, max_new_tokens)
+
         results: List[TranslationResult] = []
-        for request, output in zip(requests, outputs):
-            translation = output.outputs[0].text.strip() if output.outputs else ""
+        for request, text in zip(requests, texts):
+            translation = text.strip()
             if self._is_gpt_oss:
                 translation = _extract_gpt_oss_final(translation)
             results.append(TranslationResult(
@@ -508,7 +506,61 @@ class VllmAdapter(BaseBackend):
             ))
         return results
 
-    def _render_prompt(self, prompt: str) -> str:
+    def _sample_or_greedy(self, rendered_prompts: List[str], decoding: DecodingConfig, max_new_tokens: int) -> List[str]:
+        from vllm import SamplingParams
+
+        # Anti-repetition + min_tokens defaults: break degenerate reasoning loops
+        # (gpt-oss) and the immediate-EOS empties (Mistral-Medium). Harmless for
+        # normal inputs. temperature/top_p come from the decoding variant; a greedy
+        # variant uses temperature 0.
+        sampling_kwargs: Dict[str, Any] = dict(
+            max_tokens=max_new_tokens,
+            temperature=(decoding.temperature if decoding.method == "sample" else 0.0),
+            top_p=(decoding.top_p if decoding.method == "sample" else 1.0),
+            repetition_penalty=1.1,
+            frequency_penalty=0.3,
+            min_tokens=2,
+        )
+        if decoding.method == "sample" and decoding.seed is not None:
+            sampling_kwargs["seed"] = decoding.seed
+        try:
+            sampling_params = SamplingParams(**sampling_kwargs)
+        except TypeError:
+            sampling_kwargs.pop("min_tokens", None)
+            sampling_params = SamplingParams(**sampling_kwargs)
+        outputs = self.llm.generate(rendered_prompts, sampling_params)
+        return [o.outputs[0].text if o.outputs else "" for o in outputs]
+
+    def _beam_search(self, rendered_prompts: List[str], decoding: DecodingConfig, max_new_tokens: int) -> List[str]:
+        # vLLM exposes beam search via a dedicated API (continuous batching is
+        # disabled for it). Unlike generate(), each returned beam sequence's
+        # ``.text`` is the decode of the *full* token list (prompt + generation),
+        # so we tokenize the prompt ourselves, pass token-id prompts, and decode
+        # only the generated tail to avoid echoing the prompt.
+        from vllm.sampling_params import BeamSearchParams
+        from vllm.inputs import TokensPrompt
+
+        params = BeamSearchParams(beam_width=max(2, decoding.num_beams), max_tokens=max_new_tokens)
+        prompt_token_ids = [self.tokenizer.encode(p) for p in rendered_prompts]
+        prompts = [TokensPrompt(prompt_token_ids=ids) for ids in prompt_token_ids]
+        outputs = self.llm.beam_search(prompts, params)
+        texts: List[str] = []
+        for ids, o in zip(prompt_token_ids, outputs):
+            seqs = getattr(o, "sequences", None) or []
+            if not seqs:
+                texts.append("")
+                continue
+            best = seqs[0]
+            gen_tokens = list(getattr(best, "tokens", []))[len(ids):]
+            if gen_tokens:
+                texts.append(self.tokenizer.decode(gen_tokens, skip_special_tokens=True))
+            else:
+                # Fallback: strip the rendered prompt prefix from the full text.
+                full = getattr(best, "text", "") or ""
+                texts.append(full)
+        return texts
+
+    def _render_prompt(self, prompt: str, thinking: bool | None = None) -> str:
         # Mistral tokenizers (tokenizer_mode="mistral") expose apply_chat_template
         # but may not surface a ``chat_template`` attribute, so detect them by name
         # as well and attempt templating regardless.
@@ -518,7 +570,8 @@ class VllmAdapter(BaseBackend):
             messages = [{"role": "user", "content": prompt}]
             try:
                 return _apply_chat_template(
-                    self.tokenizer, messages, tokenize=False, return_dict=False, gpt_oss=self._is_gpt_oss
+                    self.tokenizer, messages, tokenize=False, return_dict=False,
+                    gpt_oss=self._is_gpt_oss, thinking=thinking,
                 )
             except Exception:
                 return prompt
@@ -582,8 +635,7 @@ class AutoBackend(BaseBackend):
         *,
         max_input_length: int,
         max_new_tokens: int,
-        temperature: float,
-        top_p: float,
+        decoding: DecodingConfig,
     ) -> List[TranslationResult]:
         self.load()
         assert self.delegate is not None
@@ -591,8 +643,7 @@ class AutoBackend(BaseBackend):
             requests,
             max_input_length=max_input_length,
             max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
+            decoding=decoding,
         )
 
     @staticmethod

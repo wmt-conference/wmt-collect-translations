@@ -8,13 +8,16 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Sequence
 
+import yaml
 
-DEFAULT_REGISTRY = Path(__file__).resolve().parent / "model_registry.wmt26.json"
+
+DEFAULT_REGISTRY = Path(__file__).resolve().parent / "model_registry.wmt26.yaml"
 DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[1] / "models" / "hf-hub"
 
 
 def load_registry(path: Path) -> Dict[str, Dict[str, object]]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    payload = yaml.safe_load(text) if path.suffix.lower() in (".yaml", ".yml") else json.loads(text)
     models = payload.get("models")
     if not isinstance(models, dict):
         raise ValueError(f"Registry must contain a top-level models object: {path}")

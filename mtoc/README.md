@@ -23,7 +23,7 @@ Optional multimodal fields may exist in the input, but this text CLI currently r
 - `offline.py`: offline backends for local model inference. The WMT26 registry defaults to Hugging Face Transformers; vLLM remains available for targeted experiments.
 - `online.py`: adapter boundary for API/online providers. Existing provider functions can be wrapped if they accept a request dictionary and return either text or `(text, metadata)`.
 - `collect.py`: CLI, input validation, resumable JSONL writing, failure logging, and GPU launch planning.
-- `model_registry.wmt26.json`: default WMT26 offline model registry with only planned local systems.
+- `model_registry.wmt26.yaml`: default WMT26 offline model registry with only planned local systems.
 - `run_manifest.json`: full model run list from the planning sheet, including offline, online, proprietary, and multi-node models.
 
 ## Install
@@ -54,7 +54,7 @@ Download all WMT26 local/offline model repos into the repo-level Hugging Face ca
 python download_models.py --cache-dir ../models/hf-hub --models all
 ```
 
-The downloader reads `model_registry.wmt26.json`, enables Hugging Face fast-transfer settings, and stores snapshots under `../models/hf-hub`. To preview without downloading:
+The downloader reads `model_registry.wmt26.yaml`, enables Hugging Face fast-transfer settings, and stores snapshots under `../models/hf-hub`. To preview without downloading:
 
 ```bash
 python download_models.py --dry-run
@@ -188,7 +188,7 @@ The callable receives a normalized request dictionary containing the original ro
 
 ## Model Registry
 
-WMT26 model defaults live in `model_registry.wmt26.json`. Add or edit entries there for the actual WMT26 local/offline model list. Important fields:
+WMT26 model defaults live in `model_registry.wmt26.yaml`. Add or edit entries there for the actual WMT26 local/offline model list. Important fields:
 
 - `hf_id`: Hugging Face model id
 - `backend`: `hf` by default for WMT26; `vllm` only for targeted experiments
@@ -203,7 +203,7 @@ WMT26 model defaults live in `model_registry.wmt26.json`. Add or edit entries th
 
 The `plan` command uses `tensor_parallel_size` to print non-overlapping GPU waves. Commands inside one wave can run concurrently. Run later waves only after the previous wave finishes.
 
-`run_manifest.json` is broader than `model_registry.wmt26.json`: it mirrors the planning sheet and includes proprietary, external, or multi-node models that `mtoc` should not try to launch as local GPU jobs yet. `model_registry.wmt26.json` should contain only WMT26 entries that `collect.py run` can execute locally with `hf` or `vllm`.
+`run_manifest.json` is broader than `model_registry.wmt26.yaml`: it mirrors the planning sheet and includes proprietary, external, or multi-node models that `mtoc` should not try to launch as local GPU jobs yet. `model_registry.wmt26.yaml` should contain only WMT26 entries that `collect.py run` can execute locally with `hf` or `vllm`.
 
 ## Notes
 
