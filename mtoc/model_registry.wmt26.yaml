@@ -6,12 +6,12 @@ description: >-
   gpt-oss MXFP4 and Mistral FP8) and transparently falls back to the HF/Transformers
   Accelerate path when vLLM does not support a model.
 
-  Each model also declares `variants`: named decoding configs (greedy / sample / beam,
+  Each model also declares `variants`: named decoding configs (greedy / sample,
   thinking on/off) that each produce a separate output stream `<model>__<variant>`. This
-  lets us run controlled experiments ("is beam better than sampling?", "is thinking
-  useful for MT?") across models. Decoding variants are defined once with YAML anchors on
+  lets us run controlled experiments ("what sampling temperature is best for MT?", "is
+  thinking useful for MT?") across models. Decoding variants are defined once with YAML anchors on
   the first model and referenced by the others; a model can override a referenced variant
-  by inlining its own mapping. Select variants at run time with `--variants greedy beam4`.
+  by inlining its own mapping. Select variants at run time with `--variants greedy sample_t07`.
 
   Proprietary, external-provider, and multi-node-only systems are tracked in
   run_manifest.json instead.
@@ -40,7 +40,6 @@ models:
       # recommended sampling (temp 0.6, top_p 0.95) since greedy thinking tends
       # to loop; nothink is greedy with reasoning disabled.
       greedy: &greedy {method: greedy}
-      beam4: &beam4 {method: beam, num_beams: 4}
       sample_t03: &sample_t03 {method: sample, temperature: 0.3, top_p: 0.95}
       sample_t07: &sample_t07 {method: sample, temperature: 0.7, top_p: 0.95}
       sample_t10: &sample_t10 {method: sample, temperature: 1.0, top_p: 1.0}
@@ -78,7 +77,6 @@ models:
     notes: "WMT26 sheet: Gemma 4 4B. Gated Google model."
     variants:
       greedy: *greedy
-      beam4: *beam4
       sample_t07: *sample_t07
 
   ministral3_14b:
@@ -96,7 +94,6 @@ models:
     notes: "WMT26 sheet: Ministral 3 14B (FP8). vLLM serves it text-only; HF upcasts to bf16."
     variants:
       greedy: *greedy
-      beam4: *beam4
       sample_t07: *sample_t07
 
   gpt_oss_20b:
@@ -117,7 +114,6 @@ models:
       max_new_tokens raised to 2048 so the answer is not cut off mid-analysis.
     variants:
       greedy: *greedy
-      beam4: *beam4
       sample_t07: *sample_t07
       think: *think
       nothink: *nothink
@@ -137,7 +133,6 @@ models:
     notes: "WMT26 sheet: TowerPlus 9B. Translation-tuned chat model."
     variants:
       greedy: *greedy
-      beam4: *beam4
       sample_t07: *sample_t07
 
   glm4_9b:
@@ -155,7 +150,6 @@ models:
     notes: "WMT26 sheet: GLM 4 9B. Legacy chatglm remote-code compat shims on the HF path."
     variants:
       greedy: *greedy
-      beam4: *beam4
       sample_t07: *sample_t07
 
   qwen3_6_27b:

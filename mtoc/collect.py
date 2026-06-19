@@ -23,6 +23,12 @@ DEFAULT_REGISTRY = Path(__file__).resolve().parent / "model_registry.wmt26.yaml"
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "outputs"
 DEFAULT_LOG_DIR = Path(__file__).resolve().parent / "logs"
 
+# How many prompts to hand a continuous-batching backend (vLLM) per generate()
+# call. vLLM schedules its own batching, so a large chunk keeps the GPU saturated;
+# the chunk boundary only controls how often results are flushed to disk for
+# resumability/progress. HF backends ignore this and use their own batch_size.
+VLLM_GENERATION_CHUNK = 2048
+
 @dataclass(frozen=True)
 class Job:
     model_key: str
@@ -57,6 +63,7 @@ def parse_decoding_config(name: str, raw: object) -> DecodingConfig:
         temperature=float(raw.get("temperature", 0.0)),
         top_p=float(raw.get("top_p", 1.0)),
         num_beams=int(raw.get("num_beams", 1)),
+        length_penalty=float(raw.get("length_penalty", 1.0)),
         thinking=thinking,
         seed=(int(raw["seed"]) if raw.get("seed") is not None else None),
         max_new_tokens=(int(raw["max_new_tokens"]) if raw.get("max_new_tokens") is not None else None),
@@ -256,6 +263,7 @@ def build_output_row(
             "temperature": decoding.temperature,
             "top_p": decoding.top_p,
             "num_beams": decoding.num_beams,
+            "length_penalty": decoding.length_penalty,
             "thinking": decoding.thinking,
             "seed": decoding.seed,
         },
@@ -340,13 +348,21 @@ def run_job(args: argparse.Namespace, job: Job, records: Sequence[TranslationReq
     )
     backend_runner.load()
 
+    # vLLM runs its own continuous-batching scheduler: feed it large chunks so the
+    # engine stays saturated instead of being starved by tiny synchronous batches.
+    # HF has no such scheduler, so it keeps the configured per-model batch size.
+    if getattr(backend_runner, "continuous_batching", False):
+        chunk_size = max(batch_size, VLLM_GENERATION_CHUNK)
+    else:
+        chunk_size = batch_size
+
     total_success = 0
     total_failure = 0
     for variant, run_key, output_path, failure_path, pending, max_new_tokens in plan:
         success_count = 0
         failure_count = 0
         with JsonlWriter(output_path) as output_writer, JsonlWriter(failure_path) as failure_writer:
-            for batch in iter_batches(pending, batch_size):
+            for batch in iter_batches(pending, chunk_size):
                 try:
                     results = backend_runner.translate_batch(
                         batch,

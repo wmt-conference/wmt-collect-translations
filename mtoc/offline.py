@@ -59,10 +59,11 @@ def _apply_chat_template(
 def _extract_gpt_oss_final(text: str) -> str:
     """Return only the Harmony ``final`` channel from a gpt-oss completion.
 
+    NOTE: This is an *eval-phase* helper. Collection now stores the raw model
+    output (reasoning included); strip it at eval time with this function.
+
     gpt-oss emits ``analysis<reasoning>...assistantfinal<answer>``. We keep just the
-    answer. If the model never reached the final channel (e.g. it exhausted the token
-    budget mid-analysis), return an empty string so the row is flagged as a failure
-    rather than polluted with raw reasoning text.
+    answer. If the model never reached the final channel, returns an empty string.
     """
     marker = "assistantfinal"
     index = text.rfind(marker)
@@ -243,6 +244,7 @@ class HfCausalLmAdapter(BaseBackend):
             generation_kwargs.update({
                 "do_sample": False,
                 "num_beams": max(2, decoding.num_beams),
+                "length_penalty": decoding.length_penalty,
                 "early_stopping": True,
             })
         else:  # greedy
@@ -254,9 +256,10 @@ class HfCausalLmAdapter(BaseBackend):
         results: List[TranslationResult] = []
         for request, row in zip(requests, generated):
             new_tokens = row[prompt_width:]
+            # Store the raw model output, including any reasoning/thinking channels
+            # (gpt-oss Harmony, Qwen <think>...). Reasoning is stripped in the eval
+            # phase, not at collection time, so nothing is lost.
             translation = self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
-            if self._is_gpt_oss:
-                translation = _extract_gpt_oss_final(translation)
             results.append(TranslationResult(
                 request=request,
                 translation=translation,
@@ -434,6 +437,10 @@ class HfCausalLmAdapter(BaseBackend):
 
 
 class VllmAdapter(BaseBackend):
+    # vLLM runs its own continuous-batching scheduler, so the runner should feed it
+    # large chunks of prompts at once rather than tiny synchronous micro-batches.
+    continuous_batching = True
+
     def __init__(self, model_config: RuntimeModelConfig, *, gpu_memory_utilization: float) -> None:
         super().__init__(model_config)
         self.gpu_memory_utilization = gpu_memory_utilization
@@ -494,9 +501,9 @@ class VllmAdapter(BaseBackend):
 
         results: List[TranslationResult] = []
         for request, text in zip(requests, texts):
+            # Store the raw model output, including reasoning/thinking channels
+            # (gpt-oss Harmony, Qwen <think>...). Reasoning is stripped in eval.
             translation = text.strip()
-            if self._is_gpt_oss:
-                translation = _extract_gpt_oss_final(translation)
             results.append(TranslationResult(
                 request=request,
                 translation=translation,
@@ -540,7 +547,14 @@ class VllmAdapter(BaseBackend):
         from vllm.sampling_params import BeamSearchParams
         from vllm.inputs import TokensPrompt
 
-        params = BeamSearchParams(beam_width=max(2, decoding.num_beams), max_tokens=max_new_tokens)
+        # length_penalty applies in vLLM as score = cum_logprob / (len ** penalty):
+        # >1.0 favours longer sequences, which avoids the early-EOS truncation that
+        # otherwise lets a tiny beam (e.g. just "<p>") win on long documents.
+        params = BeamSearchParams(
+            beam_width=max(2, decoding.num_beams),
+            max_tokens=max_new_tokens,
+            length_penalty=decoding.length_penalty,
+        )
         prompt_token_ids = [self.tokenizer.encode(p) for p in rendered_prompts]
         prompts = [TokensPrompt(prompt_token_ids=ids) for ids in prompt_token_ids]
         outputs = self.llm.beam_search(prompts, params)
@@ -628,6 +642,9 @@ class AutoBackend(BaseBackend):
         else:
             print(f"{self.model_config.key}: using vLLM backend", flush=True)
         self.delegate = adapter
+        # Mirror the resolved runtime's batching behaviour so the runner sizes its
+        # prompt chunks correctly (vLLM gets big chunks, HF stays at batch_size).
+        self.continuous_batching = getattr(adapter, "continuous_batching", False)
 
     def translate_batch(
         self,

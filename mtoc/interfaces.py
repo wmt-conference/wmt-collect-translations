@@ -22,6 +22,7 @@ class DecodingConfig:
     temperature: float = 0.0
     top_p: float = 1.0
     num_beams: int = 1
+    length_penalty: float = 1.0
     thinking: Optional[bool] = None
     seed: Optional[int] = None
     max_new_tokens: Optional[int] = None
@@ -79,6 +80,11 @@ class TranslationResult:
 
 
 class BaseBackend:
+    # Whether the backend schedules its own continuous batching (vLLM). When True,
+    # the runner hands it large prompt chunks at once instead of tiny synchronous
+    # micro-batches, so the engine can keep the GPU saturated.
+    continuous_batching: bool = False
+
     def __init__(self, model_config: RuntimeModelConfig) -> None:
         self.model_config = model_config
 
