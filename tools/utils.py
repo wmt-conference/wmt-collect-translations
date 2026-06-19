@@ -22,7 +22,7 @@ for _p in _PROVIDERS:
 
 
 def _request_model(model_name, request):
-    request['prompt'] = f"{request['prompt_instruction']}\n\n{request['segment']}"
+    request['prompt'] = f"{request['instruction']}\n\n{request['segment']}"
 
     process, params = MODELS[model_name]
     answer = process(request, model=model_name, **params)
@@ -56,7 +56,7 @@ def collect_answers(blindset, model_name):
             'doc_id': row['doc_id'],
             'target_language': row['tgt_lang'],
             'segment': row['src_text'],
-            'prompt_instruction': row['prompt_instruction']
+            'instruction': row['instruction']
         }
 
         try:
