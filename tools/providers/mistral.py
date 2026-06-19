@@ -4,7 +4,7 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_LENGTH, FINISH_STOP
 
 MODELS = {
-    "mistral-medium-3.5": {"max_tokens": 8192, "extra": {}},
+    "mistral-medium-3.5": {"extra": {"max_tokens": 8192}},
 }
 
 CLIENT = None
@@ -20,7 +20,7 @@ def lazy_get_client():
     return CLIENT
 
 
-def process(request, model, max_tokens, extra=None):
+def process(request, model, extra=None):
     extra = extra or {}
     cache = get_cache("mistral")
     key = cache_key(model, request)
@@ -28,7 +28,7 @@ def process(request, model, max_tokens, extra=None):
     if key in cache:
         raw, extra = cache[key]["raw"], cache[key]["extra"]
     else:
-        raw = _call(request, model, max_tokens, extra)
+        raw = _call(request, model, extra)
         if raw is None:
             return None
         cache[key] = {"raw": raw, "extra": extra}
@@ -36,7 +36,7 @@ def process(request, model, max_tokens, extra=None):
     return _extract(raw, extra)
 
 
-def _call(request, model, max_tokens, extra):
+def _call(request, model, extra):
     client = lazy_get_client()
 
     messages = [{"role": "user", "content": request['prompt']}]
@@ -45,7 +45,6 @@ def _call(request, model, max_tokens, extra):
         response = client.chat.complete(
             model=model,
             messages=messages,
-            max_tokens=max_tokens,
             **extra,
         )
     except Exception as e:

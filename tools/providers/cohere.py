@@ -7,8 +7,10 @@ from tools.errors import FINISH_STOP, FINISH_LENGTH
 MODELS = {
     # https://huggingface.co/CohereLabs/command-a-plus-05-2026-w4a4
     # "p" is Cohere's name for top_p
-    "command-a-plus-05-2026": {"max_tokens": 64000, "extra": {"temperature": 0.9, "p": 0.95}},
-    "tiny-aya-global": {"max_tokens": 8096, "extra": {}},
+    "command-a-plus-05-2026": {"extra": {"max_tokens": 64000, "temperature": 0.9, "p": 0.95}},
+    # https://huggingface.co/CohereLabs/tiny-aya-global
+    "tiny-aya-global": {"extra": {"max_tokens": 8096, "temperature": 0.1, "top_p": 0.95
+}},
 }
 
 CLIENT = None
@@ -22,7 +24,7 @@ def lazy_get_client():
     return CLIENT
 
 
-def process(request, model, max_tokens, extra=None):
+def process(request, model, extra=None):
     extra = extra or {}
     cache = get_cache("cohere")
     key = cache_key(model, request)
@@ -30,7 +32,7 @@ def process(request, model, max_tokens, extra=None):
     if key in cache:
         raw, extra = cache[key]["raw"], cache[key]["extra"]
     else:
-        raw = _call(request, model, max_tokens, extra)
+        raw = _call(request, model, extra)
         import ipdb
         ipdb.set_trace()
         if raw is None:
@@ -40,7 +42,7 @@ def process(request, model, max_tokens, extra=None):
     return _extract(raw, model, extra)
 
 
-def _call(request, model, max_tokens, extra):
+def _call(request, model, extra):
     import cohere
 
     co = lazy_get_client()
@@ -53,7 +55,6 @@ def _call(request, model, max_tokens, extra):
         response = co.chat(
             model=model,
             messages=messages,
-            max_tokens=max_tokens,
             **extra,
         )
     except (cohere.errors.bad_request_error.BadRequestError, cohere.errors.unprocessable_entity_error.UnprocessableEntityError) as err:

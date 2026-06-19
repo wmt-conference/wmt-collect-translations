@@ -4,9 +4,9 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
 MODELS = {
-    "gemini-3.1-pro-preview": {"max_tokens": 65536, "extra": {}},
-    "gemma-3-12b-it": {"max_tokens": 32768, "extra": {}},
-    "gemma-3-27b-it": {"max_tokens": 32768, "extra": {}},
+    "gemini-3.1-pro-preview": {"extra": {"max_output_tokens": 65536}},
+    "gemma-3-12b-it": {"extra": {"max_output_tokens": 32768}},
+    "gemma-3-27b-it": {"extra": {"max_output_tokens": 32768}},
 }
 
 CLIENT = None
@@ -20,7 +20,7 @@ def lazy_get_client():
     return CLIENT
 
 
-def process(request, model, max_tokens, extra=None):
+def process(request, model, extra=None):
     extra = extra or {}
     cache = get_cache("gemini")
     key = cache_key(model, request)
@@ -28,7 +28,7 @@ def process(request, model, max_tokens, extra=None):
     if key in cache:
         raw, extra = cache[key]["raw"], cache[key]["extra"]
     else:
-        raw = _call(request, model, max_tokens, extra)
+        raw = _call(request, model, extra)
         if raw is None:
             return None
         cache[key] = {"raw": raw, "extra": extra}
@@ -36,12 +36,11 @@ def process(request, model, max_tokens, extra=None):
     return _extract(raw, extra)
 
 
-def _call(request, model, max_tokens, extra):
+def _call(request, model, extra):
     client = lazy_get_client()
     from google.genai import types
 
     config = types.GenerateContentConfig(
-        max_output_tokens=max_tokens,
         response_mime_type="text/plain",
         **extra,
         safety_settings=[
