@@ -75,11 +75,12 @@ def collect_answers(blindset, model_name):
         else:
             answers.append({
                 'doc_id': request['doc_id'],
-                'translation': "FAILED", # if everything fails, there is nothing we can do
+                'translation': "FAILED",
                 'translation_granularity': None,
+                'metadata': None
             })
         # mandatory fields for submission to OCELoT
-        answers[-1]['dataset_id'] = "wmttest2025"
+        answers[-1]['dataset_id'] = "wmt26"
         answers[-1]['tgt_lang'] = row['tgt_lang']
         answers[-1]['hypothesis'] = answers[-1].pop('translation')
 

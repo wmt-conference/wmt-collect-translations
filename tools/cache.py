@@ -9,5 +9,5 @@ def get_cache(provider):
 
 
 def cache_key(model, request):
-    raw = f"{model}_{request['source_language']}_{request['target_language']}_{request['prompt']}"
+    raw = f"{model}_{request['prompt']}"
     return hashlib.md5(raw.encode('utf-8')).hexdigest()
