@@ -18,6 +18,7 @@ for _key, _value in dotenv_values("secrets.env").items():
 
 
 flags.DEFINE_enum('model', 'command-a-plus-05-2026', list(MODELS.keys()), 'Define the model to use for translation')
+flags.DEFINE_integer('workers', 8, 'Number of parallel API request workers')
 
 FLAGS = flags.FLAGS
 
@@ -27,7 +28,7 @@ def main(args):
         urllib.request.urlretrieve("https://www2.statmt.org/wmt26/assets/wmt26_genmt_blindset.jsonl", "wmt26_genmt_blindset.jsonl")
     blindset = pd.read_json("wmt26_genmt_blindset.jsonl", lines=True)
 
-    answers = collect_answers(blindset, FLAGS.model)
+    answers = collect_answers(blindset, FLAGS.model, FLAGS.workers)
     df = pd.DataFrame(answers)
 
     # for each tgt_lang, count how many "FAILED" there are and if more than 25% are FAILED, remove that tgt_lang
