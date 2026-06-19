@@ -3,7 +3,8 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
 MODELS = {
-    "gpt-5.1": {"extra": {"max_completion_tokens": 32768}},
+    # https://developers.openai.com/api/docs/models/gpt-5.5
+    "gpt-5.5-2026-04-23": {"extra": {"max_completion_tokens": 32768, "reasoning_effort": "medium", "verbosity": "medium"}},
 }
 
 CLIENT = None
@@ -44,7 +45,6 @@ def _call(request, model, extra):
             messages=[
                 {"role": "user", "content": request['prompt']}
             ],
-            reasoning_effort="none",
             **extra,
         )
     except (openai.BadRequestError, openai.APITimeoutError) as e:
@@ -73,6 +73,6 @@ def _extract(raw, extra):
         "reasoning_trace": None,
         "input_tokens": raw['usage']['prompt_tokens'],
         "output_tokens": raw['usage']['completion_tokens'],
-        "thinking_tokens": 0,
+        "thinking_tokens": raw['usage']['completion_tokens_details'].get('reasoning_tokens', 0) or 0,
         "finish_reason": finish_reason
     }
