@@ -36,14 +36,14 @@ first_system="${SYSTEMS[0]}"
 window_name=$(sanitize_name "$first_system")
 tmux new-session -d -s $SESSION_NAME
 tmux rename-window -t $SESSION_NAME "$window_name"
-tmux send-keys -t $SESSION_NAME "conda activate wmt; source SECRETS.sh; python main.py --model '${first_system}'" C-m
+tmux send-keys -t $SESSION_NAME "conda activate wmt; python main.py --model '${first_system}'" C-m
 
 # Create a new window for each remaining system
 for system in "${SYSTEMS[@]:1}"; do
     # Create a new window with sanitized name
     window_name=$(sanitize_name "$system")
     tmux new-window -t $SESSION_NAME -n "$window_name"
-    tmux send-keys -t $SESSION_NAME:"$window_name" "conda activate wmt; source SECRETS.sh; python main.py --model '${system}'" C-m
+    tmux send-keys -t $SESSION_NAME:"$window_name" "conda activate wmt; python main.py --model '${system}'" C-m
 done
 
 # Select the first window

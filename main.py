@@ -8,8 +8,14 @@ import ipdb
 import urllib.request
 import pandas as pd
 from absl import flags, app
+from dotenv import dotenv_values
 from tools.utils import collect_answers, MODELS
- 
+
+# load API keys from the untracked secrets file (see secrets.env.example)
+for _key, _value in dotenv_values("secrets.env").items():
+    if _value:
+        os.environ.setdefault(_key, _value)
+
 
 flags.DEFINE_enum('model', 'command-a-plus-05-2026', list(MODELS.keys()), 'Define the model to use for translation')
 flags.DEFINE_bool('parallel', False, 'Run in parallel mode (default: False)')
