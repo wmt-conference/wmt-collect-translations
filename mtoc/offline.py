@@ -412,6 +412,7 @@ class VllmAdapter(BaseBackend):
         self.llm: Any = None
         self.tokenizer: Any = None
         self._is_gpt_oss: bool = _is_gpt_oss(model_config)
+        self._is_mistral: bool = "mistral" in model_config.model_id.lower()
 
     def load(self) -> None:
         if self.llm is not None:
@@ -422,7 +423,7 @@ class VllmAdapter(BaseBackend):
         except ImportError as exc:
             raise RuntimeError("vllm is required for --backend vllm") from exc
 
-        self.llm = LLM(
+        llm_kwargs: Dict[str, Any] = dict(
             model=self.model_config.model_id,
             tensor_parallel_size=self.model_config.tensor_parallel_size,
             dtype=self.model_config.dtype,
@@ -430,6 +431,21 @@ class VllmAdapter(BaseBackend):
             trust_remote_code=self.model_config.trust_remote_code,
             gpu_memory_utilization=self.gpu_memory_utilization,
         )
+        if self._is_mistral:
+            # Mistral vision-language checkpoints (e.g. Mistral3ForConditionalGeneration,
+            # Ministral) fail vLLM's multimodal profiling because the MistralCommon
+            # tokenizer injects a dummy image. This is a text translation task, so use
+            # the native Mistral tokenizer and forbid image inputs, which lets vLLM
+            # serve the (FP8) text model instead of falling back to slow HF.
+            llm_kwargs["tokenizer_mode"] = "mistral"
+            llm_kwargs["limit_mm_per_prompt"] = {"image": 0}
+
+        try:
+            self.llm = LLM(**llm_kwargs)
+        except TypeError:
+            # Older vLLM builds may not accept limit_mm_per_prompt as a dict here.
+            llm_kwargs.pop("limit_mm_per_prompt", None)
+            self.llm = LLM(**llm_kwargs)
         self.tokenizer = self.llm.get_tokenizer()
 
     def translate_batch(
@@ -478,12 +494,19 @@ class VllmAdapter(BaseBackend):
         return results
 
     def _render_prompt(self, prompt: str) -> str:
-        chat_template = getattr(self.tokenizer, "chat_template", None)
-        if chat_template:
+        # Mistral tokenizers (tokenizer_mode="mistral") expose apply_chat_template
+        # but may not surface a ``chat_template`` attribute, so detect them by name
+        # as well and attempt templating regardless.
+        has_template = getattr(self.tokenizer, "chat_template", None) is not None
+        is_mistral_tok = "mistral" in type(self.tokenizer).__name__.lower() or self._is_mistral
+        if has_template or is_mistral_tok:
             messages = [{"role": "user", "content": prompt}]
-            return _apply_chat_template(
-                self.tokenizer, messages, tokenize=False, return_dict=False, gpt_oss=self._is_gpt_oss
-            )
+            try:
+                return _apply_chat_template(
+                    self.tokenizer, messages, tokenize=False, return_dict=False, gpt_oss=self._is_gpt_oss
+                )
+            except Exception:
+                return prompt
         return prompt
 
 

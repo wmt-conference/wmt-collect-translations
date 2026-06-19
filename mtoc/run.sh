@@ -25,7 +25,7 @@ cd "$HERE"
 export HF_HUB_CACHE="$HERE/models/hf-hub" HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 VLLM_LOGGING_LEVEL=WARNING PYTHONUNBUFFERED=1
 {
   echo "input=$INPUT"; echo "output_dir=$OUTPUT_DIR"; echo "gpus=$GPUS"; echo "started=\$(date -Is)"
-  /opt/venv/bin/python mtoc/collect.py launch --input "$INPUT" --models all --gpus "$GPUS" --output-dir "$OUTPUT_DIR" --log-dir "$OUTPUT_DIR"
+  /opt/venv/bin/python mtoc/collect.py launch --input "$INPUT" --models all --gpus "$GPUS" --output-dir "$OUTPUT_DIR" --log-dir "$OUTPUT_DIR" --gpu-memory-utilization 0.85
   echo "finished=\$(date -Is)"
 } 2>&1 | tee "$LOG_FILE"
 EOF

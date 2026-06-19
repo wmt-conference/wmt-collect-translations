@@ -343,6 +343,7 @@ def build_run_command(args: argparse.Namespace, model: RuntimeModelConfig) -> Li
         command.extend(["--max-new-tokens", str(args.max_new_tokens)])
     if args.device_map != "auto":
         command.extend(["--device-map", args.device_map])
+    command.extend(["--gpu-memory-utilization", str(args.gpu_memory_utilization)])
     if args.max_gpu_memory is not None:
         command.extend(["--max-gpu-memory", args.max_gpu_memory])
     if args.allow_cpu_offload:
@@ -494,19 +495,16 @@ def command_launch(args: argparse.Namespace) -> int:
         print("No runnable models selected.", file=sys.stderr)
         return 2
 
-    small = [m for m in runnable if m.tensor_parallel_size == 1]
-    large = [m for m in runnable if m.tensor_parallel_size > 1]
+    # Run small models first so they pack the pool while big models wait for room.
+    runnable.sort(key=lambda m: m.tensor_parallel_size)
     print(
-        f"Scheduling: {len(small)} single-GPU model(s) in parallel across {len(gpu_ids)} GPU(s), "
-        f"then {len(large)} multi-GPU model(s) sequentially.",
+        f"Scheduling across {len(gpu_ids)} GPU(s): models run concurrently whenever "
+        f"enough GPUs are free (tp sizes: "
+        f"{', '.join(f'{m.key}={m.tensor_parallel_size}' for m in runnable)}).",
         flush=True,
     )
 
-    results: List[Tuple[str, int]] = []
-    if small:
-        results.extend(_run_parallel_single_gpu(args, small, gpu_ids))
-    for model in large:
-        results.append(_run_one(args, model, gpu_ids[: model.tensor_parallel_size]))
+    results = _run_pool(args, runnable, gpu_ids)
 
     print("\nLauncher summary:")
     failures = 0
@@ -518,65 +516,71 @@ def command_launch(args: argparse.Namespace) -> int:
     return 2 if failures else 0
 
 
-def _run_one(args: argparse.Namespace, model: RuntimeModelConfig, model_gpus: Sequence[str]) -> Tuple[str, int]:
-    """Run a single model in the foreground, inheriting stdout (sequential phase)."""
-    command = build_run_command(args, model)
-    env = dict(os.environ)
-    env["CUDA_VISIBLE_DEVICES"] = ",".join(model_gpus)
-    print(f"\n>> {model.key} on GPU(s) {','.join(model_gpus)} ({model.backend} backend)", flush=True)
-    completed = subprocess.run(command, env=env)
-    status = "ok" if completed.returncode == 0 else f"FAILED (exit {completed.returncode})"
-    print(f"<< {model.key}: {status}", flush=True)
-    return model.key, completed.returncode
-
-
-def _run_parallel_single_gpu(
+def _run_pool(
     args: argparse.Namespace, models: Sequence[RuntimeModelConfig], gpu_ids: Sequence[str]
 ) -> List[Tuple[str, int]]:
-    """Run tp=1 models concurrently, one per GPU, refilling GPUs as models finish.
+    """Dynamic GPU-pool scheduler for models of any tensor_parallel_size.
 
-    Each model's console output is redirected to <log-dir>/<key>/run.log so the
-    parallel streams do not interleave; the launcher prints concise start/finish
-    lines. The per-model translations/failures JSONL files are written as usual.
+    A model launches as soon as its tp GPUs are free, so multiple models run
+    concurrently whenever the pool allows (e.g. two tp=2 models share 4 GPUs),
+    while a tp=8 model waits until the whole node is free. Each model's console
+    output goes to <log-dir>/<key>/run.log so parallel streams don't interleave.
+    To keep larger models from starving behind a trickle of smaller ones, models
+    are tried in tp order and a model only yields to those ahead of it in the
+    queue (head-of-line), not to every later model.
     """
     free_gpus: List[str] = list(gpu_ids)
     pending: List[RuntimeModelConfig] = list(models)
-    running: List[Tuple[RuntimeModelConfig, str, Any, Any]] = []  # model, gpu, proc, logfile
+    running: List[Tuple[RuntimeModelConfig, List[str], Any, Any]] = []  # model, gpus, proc, logfile
     results: List[Tuple[str, int]] = []
     done = 0
     total = len(models)
 
     while pending or running:
-        # Fill free GPUs with pending models.
-        while pending and free_gpus:
-            model = pending.pop(0)
-            gpu = free_gpus.pop(0)
-            command = build_run_command(args, model)
-            env = dict(os.environ)
-            env["CUDA_VISIBLE_DEVICES"] = gpu
-            log_path = failure_path_for(args.log_dir, model.key).parent / "run.log"
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            logfile = open(log_path, "w", encoding="utf-8")
-            proc = subprocess.Popen(command, env=env, stdout=logfile, stderr=subprocess.STDOUT)
-            print(f">> {model.key} started on GPU {gpu} ({model.backend} backend); log {log_path}", flush=True)
-            running.append((model, gpu, proc, logfile))
+        # Launch the head of the queue (and any later model that fits) without
+        # letting a smaller model jump ahead of a blocked larger one.
+        index = 0
+        while index < len(pending):
+            model = pending[index]
+            need = model.tensor_parallel_size
+            if need <= len(free_gpus):
+                pending.pop(index)
+                gpus = [free_gpus.pop(0) for _ in range(need)]
+                command = build_run_command(args, model)
+                env = dict(os.environ)
+                env["CUDA_VISIBLE_DEVICES"] = ",".join(gpus)
+                log_path = failure_path_for(args.log_dir, model.key).parent / "run.log"
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                logfile = open(log_path, "w", encoding="utf-8")
+                proc = subprocess.Popen(command, env=env, stdout=logfile, stderr=subprocess.STDOUT)
+                print(
+                    f">> {model.key} started on GPU(s) {','.join(gpus)} "
+                    f"({model.backend} backend); log {log_path}",
+                    flush=True,
+                )
+                running.append((model, gpus, proc, logfile))
+            else:
+                # Head-of-line: stop so this model isn't starved by later ones.
+                break
 
-        # Reap any finished processes.
-        still_running: List[Tuple[RuntimeModelConfig, str, Any, Any]] = []
-        for model, gpu, proc, logfile in running:
+        # Reap finished processes and return their GPUs to the pool.
+        still_running: List[Tuple[RuntimeModelConfig, List[str], Any, Any]] = []
+        for model, gpus, proc, logfile in running:
             code = proc.poll()
             if code is None:
-                still_running.append((model, gpu, proc, logfile))
+                still_running.append((model, gpus, proc, logfile))
                 continue
             logfile.close()
-            free_gpus.append(gpu)
+            free_gpus.extend(gpus)
             done += 1
             status = "ok" if code == 0 else f"FAILED (exit {code})"
-            print(f"<< [{done}/{total}] {model.key}: {status} (GPU {gpu} freed)", flush=True)
+            print(f"<< [{done}/{total}] {model.key}: {status} (GPU(s) {','.join(gpus)} freed)", flush=True)
             results.append((model.key, code))
         running = still_running
 
-        if running and not (pending and free_gpus):
+        if pending or running:
+            # Settle delay also lets the driver reclaim freed GPU memory before the
+            # next (possibly vLLM) launch checks free memory.
             time.sleep(5)
 
     return results

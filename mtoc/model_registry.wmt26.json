@@ -131,23 +131,23 @@
     "mistral_medium_3_5": {
       "hf_id": "mistralai/Mistral-Medium-3.5-128B",
       "backend": "auto",
-      "dtype": "bfloat16",
+      "dtype": "auto",
       "tensor_parallel_size": 8,
-      "default_batch_size": 8,
+      "default_batch_size": 256,
       "default_max_input_length": 8192,
       "default_max_new_tokens": 1024,
       "trust_remote_code": false,
       "gated": false,
       "track": "Unconstrained",
       "run_scope": "All",
-      "notes": "WMT26 sheet: Mistral Medium 3.5. Public HF id verified by API search; reserve all 8 GPUs until measured."
+      "notes": "WMT26 sheet: Mistral Medium 3.5 (128B, native FP8). Runs on vLLM tp=8 via tokenizer_mode=mistral + limit_mm_per_prompt image=0 (text-only) so it does not fall back to slow HF. dtype=auto keeps FP8."
     },
     "gpt_oss_120b": {
       "hf_id": "openai/gpt-oss-120b",
       "backend": "auto",
       "dtype": "auto",
       "tensor_parallel_size": 8,
-      "default_batch_size": 8,
+      "default_batch_size": 256,
       "default_max_input_length": 8192,
       "default_max_new_tokens": 2048,
       "trust_remote_code": true,
