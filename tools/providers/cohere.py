@@ -9,7 +9,7 @@ MODELS = {
     # "p" is Cohere's name for top_p
     "command-a-plus-05-2026": {"extra": {"max_tokens": 64000, "temperature": 0.9, "p": 0.95}},
     # https://huggingface.co/CohereLabs/tiny-aya-global
-    "tiny-aya-global": {"extra": {"max_tokens": 8096, "temperature": 0.1, "top_p": 0.95
+    "tiny-aya-global": {"extra": {"max_tokens": 8096, "temperature": 0.1, "p": 0.95
 }},
 }
 
@@ -33,8 +33,6 @@ def process(request, model, extra=None):
         raw, extra = cache[key]["raw"], cache[key]["extra"]
     else:
         raw = _call(request, model, extra)
-        import ipdb
-        ipdb.set_trace()
         if raw is None:
             return None
         cache[key] = {"raw": raw, "extra": extra}

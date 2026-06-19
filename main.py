@@ -18,7 +18,7 @@ for _key, _value in dotenv_values("secrets.env").items():
 
 
 flags.DEFINE_enum('model', 'command-a-plus-05-2026', list(MODELS.keys()), 'Define the model to use for translation')
-flags.DEFINE_integer('workers', 1, 'Number of parallel API request workers')
+flags.DEFINE_integer('workers', 32, 'Number of parallel API request workers')
 
 FLAGS = flags.FLAGS
 
