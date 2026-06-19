@@ -26,10 +26,6 @@ export ANTHROPIC_API_KEY=               # Anthropic key for claude
 ```
 
 
-## Download WMT testsets
-
-Download latest blindset from the webpage
-
 ## Running translations
 
 ```

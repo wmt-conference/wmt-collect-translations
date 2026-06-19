@@ -5,6 +5,7 @@
 
 import os
 import ipdb
+import urllib.request
 import pandas as pd
 from absl import flags, app
 from tools.utils import collect_answers, SYSTEMS
@@ -16,8 +17,10 @@ flags.DEFINE_bool('parallel', False, 'Run in parallel mode (default: False)')
 FLAGS = flags.FLAGS
 
 def main(args):
-    assert os.path.exists("genmt_blindset_wmt25.jsonl"), "Download genmt_blindset_wmt25.jsonl file from WMT website"
-    blindset = pd.read_json("genmt_blindset_wmt25.jsonl", lines=True)
+    if not os.path.exists("wmt26_genmt_blindset.jsonl"):
+        print("Blindset not found, downloading from WMT website")
+        urllib.request.urlretrieve("https://www2.statmt.org/wmt26/assets/wmt26_genmt_blindset.jsonl", "wmt26_genmt_blindset.jsonl")
+    blindset = pd.read_json("wmt26_genmt_blindset.jsonl", lines=True)
     if FLAGS.parallel:
         # avoid clashes by shuffling samples
         blindset = blindset.sample(frac=1, random_state=42).reset_index(drop=True)
