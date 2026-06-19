@@ -14,12 +14,6 @@ def get_hash_genmt(row):
     return f"{hashid}"
 
 
-def get_hash_mist(row):
-    hashid = f"{row['taskid']}_{row['prompt']}"
-    hashid = hashlib.md5(hashid.encode("utf-8")).hexdigest()
-    return f"{hashid}"
-
-
 task = sys.argv[1]
 if task == "genmt":
     blindset = pd.read_json(
@@ -29,13 +23,6 @@ if task == "genmt":
     blindset["key"] = blindset.apply(get_hash_genmt, axis=1)
     outputs = pd.read_json(
         "outputs_final/wmt-general_mt.jsonl",
-        lines=True,
-    )
-elif task == "mist":
-    blindset = pd.read_json("data/blindset_mist_2025.json")
-    blindset["key"] = blindset.apply(get_hash_mist, axis=1)
-    outputs = pd.read_json(
-        "outputs_final/wmt-mist.jsonl",
         lines=True,
     )
 else:
