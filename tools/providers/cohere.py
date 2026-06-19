@@ -15,24 +15,32 @@ def lazy_get_client():
     return CLIENT
 
 
-def process_with_command_A(request, max_tokens=None, temperature=0.0):
+def process_with_command_A(request, max_tokens=None, temperature=None):
     if max_tokens is None:
         max_tokens = 8192
+    if temperature is None:
+        temperature = 0.0
     return process_with_cohere(request, "command-a-03-2025", max_tokens=max_tokens, temperature=temperature)
 
-def process_with_command_R7B(request, max_tokens=None, temperature=0.0):
+def process_with_command_R7B(request, max_tokens=None, temperature=None):
     if max_tokens is None:
         max_tokens = 4096
+    if temperature is None:
+        temperature = 0.0
     return process_with_cohere(request, "command-r7b-12-2024", max_tokens=max_tokens, temperature=temperature)
 
-def process_with_aya_expanse_32B(request, max_tokens=None, temperature=0.0):
+def process_with_aya_expanse_32B(request, max_tokens=None, temperature=None):
     if max_tokens is None:
         max_tokens = 4096
+    if temperature is None:
+        temperature = 0.0
     return process_with_cohere(request, "c4ai-aya-expanse-32b", max_tokens=max_tokens, temperature=temperature)
 
-def process_with_aya_expanse_8B(request, max_tokens=None, temperature=0.0):
+def process_with_aya_expanse_8B(request, max_tokens=None, temperature=None):
     if max_tokens is None:
         max_tokens = 4096
+    if temperature is None:
+        temperature = 0.0
     return process_with_cohere(request, "c4ai-aya-expanse-8b", max_tokens=max_tokens, temperature=temperature)
 
 
@@ -71,6 +79,10 @@ def process_with_cohere(request, model, max_tokens=8192, temperature=0.0):
         return None
     
     return response.message.content[0].text, {
+        "raw_response": response.model_dump(mode="json"),
+        "model": model,
+        "temperature": temperature,
+        "reasoning_trace": None,
         "input_tokens": response.usage.billed_units.input_tokens,
         "output_tokens": response.usage.billed_units.output_tokens,
         "thinking_tokens": 0,

@@ -19,7 +19,7 @@ supported_languages_deepl = [
     "sl", "sv", "tr", "uk", "zh"
 ]
 
-def translate_with_deepl(request):    
+def translate_with_deepl(request, temperature=None):    
     client = lazy_get_client()
 
     target_language = request['target_language'].split('_')[0]
@@ -32,4 +32,13 @@ def translate_with_deepl(request):
                 target_lang=target_language,
             )
     
-    return result.text, {"finish_reason": FINISH_STOP}
+    return result.text, {
+        "raw_response": {"text": result.text, "detected_source_lang": result.detected_source_lang},
+        "model": None,
+        "temperature": None,
+        "reasoning_trace": None,
+        "input_tokens": None,
+        "output_tokens": None,
+        "thinking_tokens": None,
+        "finish_reason": FINISH_STOP
+    }

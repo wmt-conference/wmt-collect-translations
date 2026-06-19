@@ -60,18 +60,16 @@ def _request_system(system_name, request):
     if answer == ERROR_UNSUPPORTED_LANGUAGE:
         raise ValueError(ERROR_UNSUPPORTED_LANGUAGE)
 
-    answer, tokens = answer
+    answer, metadata = answer
 
     answer = answer.strip()
     return {
         'doc_id': request['doc_id'],
         'translation': answer,
         'translation_granularity': 'document-level',
-        "tokens": tokens
+        "metadata": metadata
     }
 
-
-# TODO: WMT25 - track temperature and reasoning traces in metadata
 
 def collect_answers(blindset, system_name):
     cache = dc.Cache(f'cache/{system_name}', expire=None, size_limit=int(10e10), cull_limit=0, eviction_policy='none')

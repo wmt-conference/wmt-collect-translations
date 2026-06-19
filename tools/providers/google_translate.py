@@ -27,7 +27,7 @@ def get_supported_languages(lang):
         return ERROR_UNSUPPORTED_LANGUAGE
         
 
-def translate_with_google_api(request):    
+def translate_with_google_api(request, temperature=None):    
     goog_translate_client = lazy_get_client()
 
     target_language = get_supported_languages(request['target_language'])
@@ -40,4 +40,13 @@ def translate_with_google_api(request):
                     target_language=target_language,
                 )
 
-    return result.get('translatedText'), {"finish_reason": FINISH_STOP}
+    return result.get('translatedText'), {
+        "raw_response": result,
+        "model": None,
+        "temperature": None,
+        "reasoning_trace": None,
+        "input_tokens": None,
+        "output_tokens": None,
+        "thinking_tokens": None,
+        "finish_reason": FINISH_STOP
+    }

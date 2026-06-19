@@ -14,9 +14,11 @@ def lazy_get_client():
     return CLIENT
 
 
-def process_with_openai_gpt4_1(request, max_tokens=None, temperature=0.0):  
+def process_with_openai_gpt4_1(request, max_tokens=None, temperature=None):  
     if max_tokens is None:
         max_tokens = 32768
+    if temperature is None:
+        temperature = 0.0
     return openai_call(request, "gpt-4.1", temperature=temperature, max_tokens=max_tokens)
 
 
@@ -49,6 +51,10 @@ def openai_call(request, model, temperature=0.0, max_tokens=None):
         return None
 
     return response.choices[0].message.content, {
+        "raw_response": response.model_dump(mode="json"),
+        "model": response.model,
+        "temperature": temperature,
+        "reasoning_trace": None,
         "input_tokens": response.usage.prompt_tokens,
         "output_tokens": response.usage.completion_tokens,
         "thinking_tokens": 0,

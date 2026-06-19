@@ -13,9 +13,11 @@ def lazy_get_client():
     return CLIENT
 
 
-def process_with_claude_4(request, max_tokens=None, temperature=0.0):
+def process_with_claude_4(request, max_tokens=None, temperature=None):
     if max_tokens is None:
         max_tokens = 16384
+    if temperature is None:
+        temperature = 0.0
     return process_with_anthropic(request, "claude-sonnet-4-20250514", max_tokens=max_tokens, temperature=temperature)
 
 def process_with_anthropic(request, model, max_tokens, temperature=0.0):
@@ -38,6 +40,10 @@ def process_with_anthropic(request, model, max_tokens, temperature=0.0):
 
 
     return response.content[0].text, {
+        "raw_response": response.model_dump(mode="json"),
+        "model": response.model,
+        "temperature": temperature,
+        "reasoning_trace": None,
         "input_tokens": response.usage.input_tokens,
         "output_tokens": response.usage.output_tokens,
         "thinking_tokens": 0,

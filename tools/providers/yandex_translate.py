@@ -12,7 +12,7 @@ def lazy_get_client():
     return CLIENT
 
 
-def translate_with_yandex(request):
+def translate_with_yandex(request, temperature=None):
     client = lazy_get_client()
     
     source_language = request['source_language']
@@ -29,4 +29,13 @@ def translate_with_yandex(request):
 
     assert result.get('code') == 200, f"Yandex Translate API error: {result.get('code')} - {result.get('text')}"
 
-    return result.get('text')[0], {"finish_reason": FINISH_STOP}
+    return result.get('text')[0], {
+        "raw_response": result,
+        "model": None,
+        "temperature": None,
+        "reasoning_trace": None,
+        "input_tokens": None,
+        "output_tokens": None,
+        "thinking_tokens": None,
+        "finish_reason": FINISH_STOP
+    }

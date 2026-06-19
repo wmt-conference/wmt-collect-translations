@@ -27,19 +27,25 @@ def lazy_get_client():
         CLIENT = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     return CLIENT
 
-def process_with_gemini_2_5_pro(request, max_tokens=None, temperature=0.0):
+def process_with_gemini_2_5_pro(request, max_tokens=None, temperature=None):
     if max_tokens is None:
         max_tokens = 65536
+    if temperature is None:
+        temperature = 0.0
     return translate_with_gemini(request, "gemini-2.5-pro", max_tokens=max_tokens, temperature=temperature)
 
-def process_with_gemma_3_12b(request, max_tokens=None, temperature=0.0):
+def process_with_gemma_3_12b(request, max_tokens=None, temperature=None):
     if max_tokens is None:
         max_tokens = 32768
+    if temperature is None:
+        temperature = 0.0
     return translate_with_gemini(request, "gemma-3-12b-it", max_tokens=max_tokens, temperature=temperature)
 
-def process_with_gemma_3_27b(request, max_tokens=None, temperature=0.0):
+def process_with_gemma_3_27b(request, max_tokens=None, temperature=None):
     if max_tokens is None:
         max_tokens = 32768
+    if temperature is None:
+        temperature = 0.0
     return translate_with_gemini(request, "gemma-3-27b-it", max_tokens=max_tokens, temperature=temperature)
 
 
@@ -114,7 +120,11 @@ def translate_with_gemini(request, model, max_tokens, temperature=0.0):
     if thinking_tokens is None:
         thinking_tokens = 0
     
-    return response.text, {"input_tokens": input_tokens,
+    return response.text, {"raw_response": response.model_dump(mode="json"),
+                           "model": response.model_version,
+                           "temperature": temperature,
+                           "reasoning_trace": None,
+                           "input_tokens": input_tokens,
                            "output_tokens": candidate_tokens + thinking_tokens,
                            "thinking_tokens": thinking_tokens, 
                            "finish_reason": finish_reason}
