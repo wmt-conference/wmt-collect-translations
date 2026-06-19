@@ -32,7 +32,7 @@ def process_with_gemini_2_5_pro(request, max_tokens=None, temperature=None):
         max_tokens = 65536
     if temperature is None:
         temperature = 0.0
-    return translate_with_gemini(request, "gemini-2.5-pro", max_tokens=max_tokens, temperature=temperature)
+    return translate_with_gemini(request, "gemini-3.1-pro-preview", max_tokens=max_tokens, temperature=temperature)
 
 def process_with_gemma_3_12b(request, max_tokens=None, temperature=None):
     if max_tokens is None:

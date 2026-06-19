@@ -18,7 +18,7 @@ def process_with_claude_4(request, max_tokens=None, temperature=None):
         max_tokens = 16384
     if temperature is None:
         temperature = 0.0
-    return process_with_anthropic(request, "claude-sonnet-4-20250514", max_tokens=max_tokens, temperature=temperature)
+    return process_with_anthropic(request, "claude-sonnet-4-5-20250929", max_tokens=max_tokens, temperature=temperature)
 
 def process_with_anthropic(request, model, max_tokens, temperature=0.0):
     client = lazy_get_client()

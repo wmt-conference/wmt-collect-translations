@@ -19,7 +19,7 @@ def process_with_openai_gpt4_1(request, max_tokens=None, temperature=None):
         max_tokens = 32768
     if temperature is None:
         temperature = 0.0
-    return openai_call(request, "gpt-4.1", temperature=temperature, max_tokens=max_tokens)
+    return openai_call(request, "gpt-5.1", temperature=temperature, max_tokens=max_tokens)
 
 
 def openai_call(request, model, temperature=0.0, max_tokens=None):
@@ -32,8 +32,8 @@ def openai_call(request, model, temperature=0.0, max_tokens=None):
             messages=[
                 {"role": "user", "content": request['prompt']}
             ],
-            max_tokens=max_tokens,
-            temperature=temperature,
+            max_completion_tokens=max_tokens,
+            reasoning_effort="none",
         )    
     except (openai.BadRequestError, openai.APITimeoutError) as e:
         return None
@@ -53,7 +53,7 @@ def openai_call(request, model, temperature=0.0, max_tokens=None):
     return response.choices[0].message.content, {
         "raw_response": response.model_dump(mode="json"),
         "model": response.model,
-        "temperature": temperature,
+        "temperature": None,
         "reasoning_trace": None,
         "input_tokens": response.usage.prompt_tokens,
         "output_tokens": response.usage.completion_tokens,

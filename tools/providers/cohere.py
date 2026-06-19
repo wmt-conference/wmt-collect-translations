@@ -20,7 +20,7 @@ def process_with_command_A(request, max_tokens=None, temperature=None):
         max_tokens = 8192
     if temperature is None:
         temperature = 0.0
-    return process_with_cohere(request, "command-a-03-2025", max_tokens=max_tokens, temperature=temperature)
+    return process_with_cohere(request, "command-a-plus-05-2026", max_tokens=max_tokens, temperature=temperature)
 
 def process_with_command_R7B(request, max_tokens=None, temperature=None):
     if max_tokens is None:
@@ -35,13 +35,6 @@ def process_with_aya_expanse_32B(request, max_tokens=None, temperature=None):
     if temperature is None:
         temperature = 0.0
     return process_with_cohere(request, "c4ai-aya-expanse-32b", max_tokens=max_tokens, temperature=temperature)
-
-def process_with_aya_expanse_8B(request, max_tokens=None, temperature=None):
-    if max_tokens is None:
-        max_tokens = 4096
-    if temperature is None:
-        temperature = 0.0
-    return process_with_cohere(request, "c4ai-aya-expanse-8b", max_tokens=max_tokens, temperature=temperature)
 
 
 def process_with_cohere(request, model, max_tokens=8192, temperature=0.0):

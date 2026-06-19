@@ -25,18 +25,19 @@ def translate_with_microsoft_api(request, temperature=None, endpoint="https://ap
     target_language = request['target_language']
 
     params = {
-        'api-version': '3.0',
-        'to': target_language,
+        'api-version': '2026-06-06',
     }
-    if source_language is not None:
-        params["from"] = source_language
 
-    body = [{'text': request['segment']}]
+    input_entry = {'text': request['segment'], 'targets': [{'language': target_language}]}
+    if source_language is not None:
+        input_entry["language"] = source_language
+
+    body = {'inputs': [input_entry]}
     http_request = requests.post(endpoint, params=params, headers=get_headers(os.environ["MTAPI_SUBSCRIPTION_KEY"]), json=body)
     response = http_request.json()
 
-    assert len(response[0]["translations"]) == 1, "More than one translation returned, this needs to be investigated."
-    return response[0]["translations"][0]['text'], {
+    assert len(response["value"][0]["translations"]) == 1, "More than one translation returned, this needs to be investigated."
+    return response["value"][0]["translations"][0]['text'], {
         "raw_response": response,
         "model": None,
         "temperature": None,

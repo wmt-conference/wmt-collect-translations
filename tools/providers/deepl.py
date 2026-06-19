@@ -3,27 +3,22 @@ from tools.errors import ERROR_UNSUPPORTED_LANGUAGE, FINISH_STOP
 
 
 CLIENT = None
+SUPPORTED_LANGUAGES = None
 def lazy_get_client():
-    global CLIENT
+    global CLIENT, SUPPORTED_LANGUAGES
     
     if CLIENT is None:
         import deepl
         assert "DEEPL_PRO_AUTH_KEY" in os.environ, "Please set the DEEPL_PRO_AUTH_KEY environment variable"
-        CLIENT = deepl.Translator(os.environ['DEEPL_PRO_AUTH_KEY'])
+        CLIENT = deepl.DeepLClient(os.environ['DEEPL_PRO_AUTH_KEY'])
+        SUPPORTED_LANGUAGES = {lang.code.lower() for lang in CLIENT.get_target_languages()}
     return CLIENT
-
-supported_languages_deepl = [
-    "ar", "bg", "cs", "da", "de", "el", "en", "en-gb", "en-us", "es", 
-    "et", "fi", "fr", "hu", "id", "it", "ja", "ko", "lt", "lv", 
-    "nb", "nl", "pl", "pt", "pt-br", "pt-pt", "ro", "ru", "sk", 
-    "sl", "sv", "tr", "uk", "zh"
-]
 
 def translate_with_deepl(request, temperature=None):    
     client = lazy_get_client()
 
     target_language = request['target_language'].split('_')[0]
-    if target_language not in supported_languages_deepl:
+    if target_language not in SUPPORTED_LANGUAGES:
         return ERROR_UNSUPPORTED_LANGUAGE
 
     result = client.translate_text(
