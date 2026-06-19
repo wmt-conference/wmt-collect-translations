@@ -23,7 +23,6 @@ export OPENAI_API_KEY=                  # OpenAI Azure key
 export MISTRAL_API_KEY=                 # Mistral API key
 export GEMINI_API_KEY=                  # Gemini API key for Google AI Studio
 export ANTHROPIC_API_KEY=               # Anthropic key for claude
-export PHI_API_KEY=                     # API key for Phi model
 ```
 
 

@@ -21,7 +21,6 @@ from tools.providers.mistral import process_with_mistral_medium
 from tools.providers.gemini import process_with_gemini_2_5_pro, process_with_gemma_3_12b, process_with_gemma_3_27b
 from tools.providers.microsoft_translator import translate_with_microsoft_api
 from tools.providers.deepl import translate_with_deepl
-from tools.providers.phi import translate_with_phi3_medium
 from tools.errors import FINISH_LENGTH, FINISH_STOP, ERROR_UNSUPPORTED_LANGUAGE
 
 
@@ -47,7 +46,6 @@ SYSTEMS = {
     'Gemma-3-27B': process_with_gemma_3_27b,
     'DeepL': translate_with_deepl,
     'MicrosoftTranslator': translate_with_microsoft_api,
-    'Phi-3-Medium': translate_with_phi3_medium,
 }
 
 non_prompt_systems = ['YandexTranslate', 'GoogleTranslate', 'DeepL', 'MicrosoftTranslator']
