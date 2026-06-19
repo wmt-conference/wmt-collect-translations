@@ -18,7 +18,6 @@ for _key, _value in dotenv_values("secrets.env").items():
 
 
 flags.DEFINE_enum('model', 'command-a-plus-05-2026', list(MODELS.keys()), 'Define the model to use for translation')
-flags.DEFINE_bool('parallel', False, 'Run in parallel mode (default: False)')
 
 FLAGS = flags.FLAGS
 
@@ -27,9 +26,6 @@ def main(args):
         print("Blindset not found, downloading from WMT website")
         urllib.request.urlretrieve("https://www2.statmt.org/wmt26/assets/wmt26_genmt_blindset.jsonl", "wmt26_genmt_blindset.jsonl")
     blindset = pd.read_json("wmt26_genmt_blindset.jsonl", lines=True)
-    if FLAGS.parallel:
-        # avoid clashes by shuffling samples
-        blindset = blindset.sample(frac=1, random_state=42).reset_index(drop=True)
 
     answers = collect_answers(blindset, FLAGS.model)
     df = pd.DataFrame(answers)
@@ -40,11 +36,8 @@ def main(args):
         if num_none > 0.25 * len(df[df['tgt_lang'] == tgt_lang]):
             df = df[df['tgt_lang'] != tgt_lang]
 
-    if not FLAGS.parallel:
-        os.makedirs("wmt_translations", exist_ok=True)
-        df.to_json(f"wmt_translations/{FLAGS.model.replace('/', '_')}.jsonl", orient='records', lines=True, force_ascii=False)
-    else:
-        print("Running in parallel mode, not saving results to disk as the data are shuffled.")
+    os.makedirs("wmt_translations", exist_ok=True)
+    df.to_json(f"wmt_translations/{FLAGS.model.replace('/', '_')}.jsonl", orient='records', lines=True, force_ascii=False)
 
     mt_num_none = df[df['hypothesis'].str.contains("FAILED", na=False)]['hypothesis'].count()
     print(f"Number of untranslated answers in MT: {mt_num_none}")
