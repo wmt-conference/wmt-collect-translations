@@ -4,7 +4,7 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
 MODELS = {
-    "claude-sonnet-4-5-20250929": {"max_tokens": 16384, "temperature": 0.0},
+    "claude-sonnet-4-5-20250929": {"max_tokens": 16384, "temperature": None},
 }
 
 CLIENT = None
@@ -36,11 +36,12 @@ def process(request, model, max_tokens, temperature):
 def _call(request, model, max_tokens, temperature):
     client = lazy_get_client()
 
+    extra = {"temperature": temperature} if temperature is not None else {}
     response = client.messages.create(
         model=model,
         max_tokens=max_tokens,
-        temperature=temperature,
-        messages=[{"role": "user", "content": request['prompt']}]
+        messages=[{"role": "user", "content": request['prompt']}],
+        **extra,
     )
 
     return response.model_dump(mode="json")

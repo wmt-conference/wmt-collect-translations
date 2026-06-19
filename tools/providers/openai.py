@@ -3,7 +3,7 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
 MODELS = {
-    "gpt-5.1": {"max_tokens": 32768, "temperature": 0.0},
+    "gpt-5.1": {"max_tokens": 32768, "temperature": None},
 }
 
 CLIENT = None

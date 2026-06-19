@@ -4,9 +4,9 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
 MODELS = {
-    "gemini-3.1-pro-preview": {"max_tokens": 65536, "temperature": 0.0},
-    "gemma-3-12b-it": {"max_tokens": 32768, "temperature": 0.0},
-    "gemma-3-27b-it": {"max_tokens": 32768, "temperature": 0.0},
+    "gemini-3.1-pro-preview": {"max_tokens": 65536, "temperature": None},
+    "gemma-3-12b-it": {"max_tokens": 32768, "temperature": None},
+    "gemma-3-27b-it": {"max_tokens": 32768, "temperature": None},
 }
 
 CLIENT = None
@@ -39,10 +39,11 @@ def _call(request, model, max_tokens, temperature):
     client = lazy_get_client()
     from google.genai import types
 
+    extra = {"temperature": temperature} if temperature is not None else {}
     config = types.GenerateContentConfig(
-        temperature=temperature,
         max_output_tokens=max_tokens,
         response_mime_type="text/plain",
+        **extra,
         safety_settings=[
             types.SafetySetting(category=category, threshold=types.HarmBlockThreshold.BLOCK_NONE)
             for category in [

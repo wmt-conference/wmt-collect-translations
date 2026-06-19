@@ -5,9 +5,8 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
 MODELS = {
-    "command-a-plus-05-2026": {"max_tokens": 8192, "temperature": 0.0},
-    "command-r7b-12-2024": {"max_tokens": 4096, "temperature": 0.0},
-    "c4ai-aya-expanse-32b": {"max_tokens": 4096, "temperature": 0.0},
+    "command-a-plus-05-2026": {"max_tokens": 128000, "temperature": None},
+    "tiny-aya-global": {"max_tokens": 4096, "temperature": None},
 }
 
 CLIENT = None
@@ -45,12 +44,13 @@ def _call(request, model, max_tokens, temperature):
         "content": [{"type": "text", "text": request['prompt']}]
     }]
 
+    extra = {"temperature": temperature} if temperature is not None else {}
     try:
         response = co.chat(
             model=model,
-            temperature=temperature,
             messages=messages,
             max_tokens=max_tokens,
+            **extra,
         )
     except (cohere.errors.bad_request_error.BadRequestError, cohere.errors.unprocessable_entity_error.UnprocessableEntityError) as err:
         if 'too many tokens' in err.body['message']:

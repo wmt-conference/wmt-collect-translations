@@ -4,7 +4,7 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_LENGTH, FINISH_STOP
 
 MODELS = {
-    "mistral-medium-3.5": {"max_tokens": 8192, "temperature": 0.0},
+    "mistral-medium-3.5": {"max_tokens": 8192, "temperature": None},
 }
 
 CLIENT = None
@@ -40,12 +40,13 @@ def _call(request, model, max_tokens, temperature):
 
     messages = [{"role": "user", "content": request['prompt']}]
 
+    extra = {"temperature": temperature} if temperature is not None else {}
     try:
         response = client.chat.complete(
             model=model,
             messages=messages,
             max_tokens=max_tokens,
-            temperature=temperature,
+            **extra,
         )
     except Exception as e:
         logging.error(f"Error: {e}")

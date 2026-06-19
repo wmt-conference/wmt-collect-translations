@@ -4,13 +4,13 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_LENGTH, FINISH_STOP
 
 MODELS = {
-    "deepseek-ai/DeepSeek-V3": {"max_tokens": 8192, "temperature": 0.0},
-    "Qwen/Qwen3-235B-A22B-fp8-tput": {"max_tokens": 8192, "temperature": 0.0},
-    "Qwen/Qwen2.5-7B-Instruct-Turbo": {"max_tokens": 8192, "temperature": 0.0},
-    "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {"max_tokens": 8192, "temperature": 0.0},
-    "meta-llama/Llama-4-Scout-17B-16E-Instruct": {"max_tokens": 8192, "temperature": 0.0},
-    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": {"max_tokens": 8192, "temperature": 0.0},
-    "mistralai/Mistral-7B-Instruct-v0.3": {"max_tokens": 8192, "temperature": 0.0},
+    "deepseek-ai/DeepSeek-V3": {"max_tokens": 8192, "temperature": None},
+    "Qwen/Qwen3-235B-A22B-fp8-tput": {"max_tokens": 8192, "temperature": None},
+    "Qwen/Qwen2.5-7B-Instruct-Turbo": {"max_tokens": 8192, "temperature": None},
+    "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {"max_tokens": 8192, "temperature": None},
+    "meta-llama/Llama-4-Scout-17B-16E-Instruct": {"max_tokens": 8192, "temperature": None},
+    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": {"max_tokens": 8192, "temperature": None},
+    "mistralai/Mistral-7B-Instruct-v0.3": {"max_tokens": 8192, "temperature": None},
 }
 
 CLIENT = None
@@ -43,17 +43,18 @@ def _call(request, model, max_tokens, temperature):
     import together
 
     client = lazy_get_client()
+    extra = {"temperature": temperature} if temperature is not None else {}
     try:
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": request['prompt']}],
             max_tokens=max_tokens,
-            temperature=temperature,
             chat_template_kwargs={
                 "enable_thinking": False, # turns off QWEN thinking
-                "temperature": temperature,
-                "max_tokens": max_tokens
+                "max_tokens": max_tokens,
+                **extra,
             },
+            **extra,
         )
     except together.error.APIError as e:
         print(f"APIError: {e}")
