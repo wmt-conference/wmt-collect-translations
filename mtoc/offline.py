@@ -471,13 +471,28 @@ class VllmAdapter(BaseBackend):
         # token reuse and frequency_penalty ramps up as a token repeats, so severe
         # loops are suppressed while normal translation is barely affected. vLLM
         # has no no_repeat_ngram_size, so these penalties stand in for the HF path.
-        sampling_params = SamplingParams(
+        #
+        # min_tokens=2 forbids an immediate end-of-sequence: some models (notably
+        # Mistral-Medium on certain legal/social prompts) otherwise pick EOS as the
+        # very first token and return an empty string. Forcing at least one real
+        # token makes them translate normally; it is harmless for normal inputs.
+        sampling_kwargs: Dict[str, Any] = dict(
             max_tokens=max_new_tokens,
             temperature=temperature,
             top_p=top_p,
             repetition_penalty=1.1,
             frequency_penalty=0.3,
+            min_tokens=2,
         )
+        if self._is_gpt_oss:
+            # gpt-oss prepends a Harmony reasoning channel before the answer, so a
+            # 2-token floor is meaningless there; keep it but it never bites.
+            pass
+        try:
+            sampling_params = SamplingParams(**sampling_kwargs)
+        except TypeError:
+            sampling_kwargs.pop("min_tokens", None)
+            sampling_params = SamplingParams(**sampling_kwargs)
         outputs = self.llm.generate(rendered_prompts, sampling_params)
         results: List[TranslationResult] = []
         for request, output in zip(requests, outputs):
