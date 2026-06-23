@@ -4,9 +4,7 @@ from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
 MODELS = {
-    "gemini-3.1-pro-preview": {"extra": {"max_output_tokens": 65536}},
-    "gemma-3-12b-it": {"extra": {"max_output_tokens": 32768}},
-    "gemma-3-27b-it": {"extra": {"max_output_tokens": 32768}},
+    "gemini-3.1-pro-preview": {"extra": {"max_output_tokens": 65536, "thinking_config": {"thinking_level": "medium"}}},
 }
 
 CLIENT = None
