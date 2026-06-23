@@ -18,7 +18,7 @@ for _key, _value in dotenv_values("secrets.env").items():
 
 
 flags.DEFINE_enum('model', 'command-a-plus-05-2026', list(MODELS.keys()), 'Define the model to use for translation')
-flags.DEFINE_integer('workers', 32, 'Number of parallel API request workers')
+flags.DEFINE_integer('workers', 1, 'Number of parallel API request workers')
 
 FLAGS = flags.FLAGS
 
@@ -36,6 +36,7 @@ def main(args):
         num_none = df[df['tgt_lang'] == tgt_lang]['hypothesis'].str.contains("FAILED", na=False).sum()
         if num_none > 0.25 * len(df[df['tgt_lang'] == tgt_lang]):
             df = df[df['tgt_lang'] != tgt_lang]
+            print(f"Removing {tgt_lang} because {num_none} of {len(df[df['tgt_lang'] == tgt_lang])} answers are FAILED")
 
     os.makedirs("wmt_translations", exist_ok=True)
     df.to_json(f"wmt_translations/{FLAGS.model.replace('/', '_')}.jsonl", orient='records', lines=True, force_ascii=False)
