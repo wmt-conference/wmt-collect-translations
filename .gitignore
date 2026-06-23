@@ -1,5 +1,6 @@
 .history*
 __pycache__
+.venv/
 cache
 submissions
 wmt_testset

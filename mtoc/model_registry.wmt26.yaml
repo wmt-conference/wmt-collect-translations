@@ -30,37 +30,32 @@ models:
     track: Constrained
     run_scope: All
     notes: "WMT26 sheet: Qwen 3.5 9B. Public HF id verified by API probe. Thinking-capable."
-    # Canonical decoding variants, defined once here as anchors and referenced by the
-    # other models. Override anywhere by inlining a mapping instead of an alias.
+    # Single decoding variant per model for the WMT26 submission: sampling with common
+    # params, thinking ON where the model supports it, and the prompt taken verbatim from
+    # the test set (no extra system prompt). Two anchors are defined here and referenced by
+    # the other models: default_think (reasoning models -> temp 0.6/top_p 0.95, thinking on)
+    # and default_sample (non-reasoning -> temp 0.7/top_p 0.95). Every model exposes exactly
+    # one variant named `default`, producing a single output stream `<model>__default`.
     variants:
-      # Reference decoding configs, defined once as anchors. vLLM defaults to
-      # temperature=1.0/top_p=1.0; greedy is temperature=0. Sampling temps below
-      # cover a sweep (0.3 conservative .. 1.0 = library default) to answer
-      # "what temperature is best for MT?". think uses the reasoning-model
-      # recommended sampling (temp 0.6, top_p 0.95) since greedy thinking tends
-      # to loop; nothink is greedy with reasoning disabled.
-      greedy: &greedy {method: greedy}
-      sample_t03: &sample_t03 {method: sample, temperature: 0.3, top_p: 0.95}
-      sample_t07: &sample_t07 {method: sample, temperature: 0.7, top_p: 0.95}
-      sample_t10: &sample_t10 {method: sample, temperature: 1.0, top_p: 1.0}
-      think: &think {method: sample, temperature: 0.6, top_p: 0.95, thinking: true}
-      nothink: &nothink {method: greedy, thinking: false}
+      default: &default_think {method: sample, temperature: 0.6, top_p: 0.95, thinking: true}
 
-  tiny_aya_global:
-    hf_id: CohereLabs/tiny-aya-global
-    backend: auto
-    dtype: bfloat16
-    tensor_parallel_size: 1
-    default_batch_size: 32
-    default_max_input_length: 4096
-    default_max_new_tokens: 1024
-    trust_remote_code: false
-    gated: true
-    track: Constrained
-    run_scope: All
-    notes: "WMT26 sheet: Tiny Aya Global. Gated repo, requires approved access."
-    variants:
-      greedy: *greedy
+  # DISABLED: tiny_aya_global is owned by another team member (separate access /
+  # collection). Kept here commented out so it is not loaded by `--models all`.
+  # tiny_aya_global:
+  #   hf_id: CohereLabs/tiny-aya-global
+  #   backend: auto
+  #   dtype: bfloat16
+  #   tensor_parallel_size: 1
+  #   default_batch_size: 32
+  #   default_max_input_length: 4096
+  #   default_max_new_tokens: 1024
+  #   trust_remote_code: false
+  #   gated: true
+  #   track: Constrained
+  #   run_scope: All
+  #   notes: "WMT26 sheet: Tiny Aya Global. Gated repo, requires approved access."
+  #   variants:
+  #     greedy: *greedy
 
   gemma4_e4b:
     hf_id: google/gemma-4-E4B-it
@@ -76,8 +71,7 @@ models:
     run_scope: All
     notes: "WMT26 sheet: Gemma 4 4B. Gated Google model."
     variants:
-      greedy: *greedy
-      sample_t07: *sample_t07
+      default: &default_sample {method: sample, temperature: 0.7, top_p: 0.95}
 
   ministral3_14b:
     hf_id: mistralai/Ministral-3-14B-Instruct-2512
@@ -93,8 +87,7 @@ models:
     run_scope: All
     notes: "WMT26 sheet: Ministral 3 14B (FP8). vLLM serves it text-only; HF upcasts to bf16."
     variants:
-      greedy: *greedy
-      sample_t07: *sample_t07
+      default: *default_sample
 
   gpt_oss_20b:
     hf_id: openai/gpt-oss-20b
@@ -113,10 +106,7 @@ models:
       is saved. thinking=false uses reasoning_effort=low, thinking=true uses high.
       max_new_tokens raised to 2048 so the answer is not cut off mid-analysis.
     variants:
-      greedy: *greedy
-      sample_t07: *sample_t07
-      think: *think
-      nothink: *nothink
+      default: *default_think
 
   tower_9b:
     hf_id: Unbabel/Tower-Plus-9B
@@ -132,8 +122,7 @@ models:
     run_scope: All
     notes: "WMT26 sheet: TowerPlus 9B. Translation-tuned chat model."
     variants:
-      greedy: *greedy
-      sample_t07: *sample_t07
+      default: *default_sample
 
   glm4_9b:
     hf_id: zai-org/glm-4-9b-chat
@@ -149,8 +138,7 @@ models:
     run_scope: All
     notes: "WMT26 sheet: GLM 4 9B. Legacy chatglm remote-code compat shims on the HF path."
     variants:
-      greedy: *greedy
-      sample_t07: *sample_t07
+      default: *default_sample
 
   qwen3_6_27b:
     hf_id: Qwen/Qwen3.6-27B
@@ -166,7 +154,7 @@ models:
     run_scope: All
     notes: "WMT26 sheet: Qwen3.6-27B."
     variants:
-      greedy: *greedy
+      default: *default_think
 
   gemma4_31b:
     hf_id: google/gemma-4-31B-it
@@ -182,7 +170,7 @@ models:
     run_scope: All
     notes: "WMT26 sheet: Gemma 4 31B. Gated Google model."
     variants:
-      greedy: *greedy
+      default: *default_sample
 
   mistral_medium_3_5:
     hf_id: mistralai/Mistral-Medium-3.5-128B
@@ -200,7 +188,7 @@ models:
       WMT26 sheet: Mistral Medium 3.5 (128B, native FP8). vLLM tp=8 text-only
       (tokenizer_mode=mistral, limit_mm_per_prompt image=0); dtype=auto keeps FP8.
     variants:
-      greedy: *greedy
+      default: *default_sample
 
   gpt_oss_120b:
     hf_id: openai/gpt-oss-120b
@@ -218,4 +206,4 @@ models:
       WMT26 sheet: GPT OSS 120B. vLLM loads the native MXFP4 MoE weights (HF loader
       hits a CUDA illegal-memory-access). Only the Harmony 'final' channel is saved.
     variants:
-      greedy: *greedy
+      default: *default_think
