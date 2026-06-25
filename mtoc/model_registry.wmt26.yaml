@@ -23,21 +23,18 @@ models:
     dtype: bfloat16
     tensor_parallel_size: 1
     default_batch_size: 8
-    default_max_input_length: 8192
-    default_max_new_tokens: 1024
+    default_max_input_length: &max_input 8192
+    default_max_new_tokens: &max_new 2048
     trust_remote_code: true
     gated: false
     track: Constrained
     run_scope: All
-    notes: "WMT26 sheet: Qwen 3.5 9B. Public HF id verified by API probe. Thinking-capable."
-    # Single decoding variant per model for the WMT26 submission: sampling with common
-    # params, thinking ON where the model supports it, and the prompt taken verbatim from
-    # the test set (no extra system prompt). Two anchors are defined here and referenced by
-    # the other models: default_think (reasoning models -> temp 0.6/top_p 0.95, thinking on)
-    # and default_sample (non-reasoning -> temp 0.7/top_p 0.95). Every model exposes exactly
-    # one variant named `default`, producing a single output stream `<model>__default`.
+    notes: "WMT26 sheet: Qwen 3.5 9B. Thinking disabled: reasoning chain consumed the full\
+      \ token budget (1024 tokens) leaving no room for the translation output."
+    # Anchors defined here; referenced by all other models. Every model runs exactly
+    # one variant named `default`, producing output stream `<model_key>.translations.jsonl`.
     variants:
-      default: &default_think {method: sample, temperature: 0.6, top_p: 0.95, thinking: true}
+      default: &default_sample {method: sample, temperature: 0.7, top_p: 0.95}
 
   # DISABLED: tiny_aya_global is owned by another team member (separate access /
   # collection). Kept here commented out so it is not loaded by `--models all`.
@@ -63,15 +60,15 @@ models:
     dtype: bfloat16
     tensor_parallel_size: 1
     default_batch_size: 16
-    default_max_input_length: 8192
-    default_max_new_tokens: 1024
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
     trust_remote_code: false
     gated: true
     track: Constrained
     run_scope: All
     notes: "WMT26 sheet: Gemma 4 4B. Gated Google model."
     variants:
-      default: &default_sample {method: sample, temperature: 0.7, top_p: 0.95}
+      default: *default_sample
 
   ministral3_14b:
     hf_id: mistralai/Ministral-3-14B-Instruct-2512
@@ -79,8 +76,8 @@ models:
     dtype: bfloat16
     tensor_parallel_size: 1
     default_batch_size: 8
-    default_max_input_length: 8192
-    default_max_new_tokens: 1024
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
     trust_remote_code: false
     gated: false
     track: Constrained
@@ -95,8 +92,8 @@ models:
     dtype: bfloat16
     tensor_parallel_size: 1
     default_batch_size: 16
-    default_max_input_length: 8192
-    default_max_new_tokens: 2048
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
     trust_remote_code: true
     gated: false
     track: Constrained
@@ -106,7 +103,7 @@ models:
       is saved. thinking=false uses reasoning_effort=low, thinking=true uses high.
       max_new_tokens raised to 2048 so the answer is not cut off mid-analysis.
     variants:
-      default: *default_think
+      default: *default_sample
 
   tower_9b:
     hf_id: Unbabel/Tower-Plus-9B
@@ -114,8 +111,8 @@ models:
     dtype: bfloat16
     tensor_parallel_size: 1
     default_batch_size: 8
-    default_max_input_length: 4096
-    default_max_new_tokens: 1024
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
     trust_remote_code: false
     gated: false
     track: Constrained
@@ -130,8 +127,8 @@ models:
     dtype: bfloat16
     tensor_parallel_size: 1
     default_batch_size: 8
-    default_max_input_length: 8192
-    default_max_new_tokens: 1024
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
     trust_remote_code: true
     gated: false
     track: Constrained
@@ -146,15 +143,15 @@ models:
     dtype: bfloat16
     tensor_parallel_size: 2
     default_batch_size: 16
-    default_max_input_length: 8192
-    default_max_new_tokens: 1024
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
     trust_remote_code: true
     gated: false
     track: Unconstrained
     run_scope: All
     notes: "WMT26 sheet: Qwen3.6-27B."
     variants:
-      default: *default_think
+      default: *default_sample
 
   gemma4_31b:
     hf_id: google/gemma-4-31B-it
@@ -162,8 +159,8 @@ models:
     dtype: bfloat16
     tensor_parallel_size: 2
     default_batch_size: 16
-    default_max_input_length: 8192
-    default_max_new_tokens: 1024
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
     trust_remote_code: false
     gated: true
     track: Unconstrained
@@ -178,8 +175,8 @@ models:
     dtype: auto
     tensor_parallel_size: 8
     default_batch_size: 256
-    default_max_input_length: 8192
-    default_max_new_tokens: 1024
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
     trust_remote_code: false
     gated: false
     track: Unconstrained
@@ -195,9 +192,9 @@ models:
     backend: auto
     dtype: auto
     tensor_parallel_size: 8
-    default_batch_size: 256
-    default_max_input_length: 8192
-    default_max_new_tokens: 2048
+    default_batch_size: 64
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
     trust_remote_code: true
     gated: false
     track: Unconstrained
@@ -206,4 +203,4 @@ models:
       WMT26 sheet: GPT OSS 120B. vLLM loads the native MXFP4 MoE weights (HF loader
       hits a CUDA illegal-memory-access). Only the Harmony 'final' channel is saved.
     variants:
-      default: *default_think
+      default: {method: sample, temperature: 0.6, top_p: 0.95, thinking: true}

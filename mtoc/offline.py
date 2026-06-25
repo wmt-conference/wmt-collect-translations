@@ -462,7 +462,11 @@ class VllmAdapter(BaseBackend):
             model=self.model_config.model_id,
             tensor_parallel_size=self.model_config.tensor_parallel_size,
             dtype=self.model_config.dtype,
-            max_model_len=self.model_config.default_max_input_length,
+            # max_model_len must cover the full sequence: input tokens + generated tokens.
+            max_model_len=self.model_config.default_max_input_length + self.model_config.default_max_new_tokens,
+            # max_num_seqs caps concurrent in-flight sequences; reduces KV-cache pressure
+            # for large models while keeping throughput healthy.
+            max_num_seqs=self.model_config.default_batch_size,
             trust_remote_code=self.model_config.trust_remote_code,
             gpu_memory_utilization=self.gpu_memory_utilization,
         )
