@@ -8,3 +8,4 @@ wmt_translations
 SECRETS.sh
 models/
 outputs*/
+secrets.env

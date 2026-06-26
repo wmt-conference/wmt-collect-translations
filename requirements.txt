@@ -15,3 +15,4 @@ google-generativeai
 google-cloud-translate
 pandas
 google-genai
+python-dotenv

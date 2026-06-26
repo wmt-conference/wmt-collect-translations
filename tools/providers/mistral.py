@@ -1,6 +1,11 @@
 import os
 import logging
+from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_LENGTH, FINISH_STOP
+
+MODELS = {
+    "mistral-medium-3.5": {"extra": {"max_tokens": 8192}},
+}
 
 CLIENT = None
 def lazy_get_client():
@@ -14,13 +19,24 @@ def lazy_get_client():
         CLIENT = Mistral(api_key=os.environ["MISTRAL_API_KEY"])
     return CLIENT
 
-def process_with_mistral_medium(request, max_tokens=None, temperature=0.0):
-    if max_tokens is None:
-        max_tokens = 8192
-    return process_with_mistral(request, "mistral-medium-latest", max_tokens=max_tokens, temperature=temperature)
 
-# setting max_tokens to None uses maximum allowed tokens of given model
-def process_with_mistral(request, model, max_tokens=None, temperature=0.0):
+def process(request, model, extra=None):
+    extra = extra or {}
+    cache = get_cache("mistral")
+    key = cache_key(model, request)
+
+    if key in cache:
+        raw, extra = cache[key]["raw"], cache[key]["extra"]
+    else:
+        raw = _call(request, model, extra)
+        if raw is None:
+            return None
+        cache[key] = {"raw": raw, "extra": extra}
+
+    return _extract(raw, extra)
+
+
+def _call(request, model, extra):
     client = lazy_get_client()
 
     messages = [{"role": "user", "content": request['prompt']}]
@@ -29,24 +45,30 @@ def process_with_mistral(request, model, max_tokens=None, temperature=0.0):
         response = client.chat.complete(
             model=model,
             messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
+            **extra,
         )
     except Exception as e:
         logging.error(f"Error: {e}")
         return None
 
-    if response.choices[0].finish_reason == "stop":
+    return response.model_dump(mode="json")
+
+
+def _extract(raw, extra):
+    if raw['choices'][0]['finish_reason'] == "stop":
         finish_reason = FINISH_STOP
-    elif response.choices[0].finish_reason == "length":
+    elif raw['choices'][0]['finish_reason'] == "length":
         finish_reason = FINISH_LENGTH
     else:
-       return None
+        return None
 
-    return response.choices[0].message.content, {
-        "input_tokens": response.usage.prompt_tokens,
-        "output_tokens": response.usage.completion_tokens,
+    return raw['choices'][0]['message']['content'], {
+        "raw_response": raw,
+        "model": raw['model'],
+        "extra": extra,
+        "reasoning_trace": None,
+        "input_tokens": raw['usage']['prompt_tokens'],
+        "output_tokens": raw['usage']['completion_tokens'],
         "thinking_tokens": 0,
         "finish_reason": finish_reason
     }
-

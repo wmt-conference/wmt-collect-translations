@@ -1,8 +1,17 @@
 import os
 import copy
 import logging
+from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
+MODELS = {
+    # https://huggingface.co/CohereLabs/command-a-plus-05-2026-w4a4
+    # "p" is Cohere's name for top_p
+    "command-a-plus-05-2026": {"extra": {"max_tokens": 64000, "temperature": 0.9, "p": 0.95}},
+    # https://huggingface.co/CohereLabs/tiny-aya-global
+    "tiny-aya-global": {"extra": {"max_tokens": 8096, "temperature": 0.1, "p": 0.95
+}},
+}
 
 CLIENT = None
 def lazy_get_client():
@@ -15,45 +24,36 @@ def lazy_get_client():
     return CLIENT
 
 
-def process_with_command_A(request, max_tokens=None, temperature=0.0):
-    if max_tokens is None:
-        max_tokens = 8192
-    return process_with_cohere(request, "command-a-03-2025", max_tokens=max_tokens, temperature=temperature)
+def process(request, model, extra=None):
+    extra = extra or {}
+    cache = get_cache("cohere")
+    key = cache_key(model, request)
 
-def process_with_command_R7B(request, max_tokens=None, temperature=0.0):
-    if max_tokens is None:
-        max_tokens = 4096
-    return process_with_cohere(request, "command-r7b-12-2024", max_tokens=max_tokens, temperature=temperature)
+    if key in cache:
+        raw, extra = cache[key]["raw"], cache[key]["extra"]
+    else:
+        raw = _call(request, model, extra)
+        if raw is None:
+            return None
+        cache[key] = {"raw": raw, "extra": extra}
 
-def process_with_aya_expanse_32B(request, max_tokens=None, temperature=0.0):
-    if max_tokens is None:
-        max_tokens = 4096
-    return process_with_cohere(request, "c4ai-aya-expanse-32b", max_tokens=max_tokens, temperature=temperature)
-
-def process_with_aya_expanse_8B(request, max_tokens=None, temperature=0.0):
-    if max_tokens is None:
-        max_tokens = 4096
-    return process_with_cohere(request, "c4ai-aya-expanse-8b", max_tokens=max_tokens, temperature=temperature)
+    return _extract(raw, model, extra)
 
 
-def process_with_cohere(request, model, max_tokens=8192, temperature=0.0):
+def _call(request, model, extra):
     import cohere
 
-    # to avoid overwriting the original request
-    request = copy.deepcopy(request)
     co = lazy_get_client()
-
-    messages=[{
-			"role": "user",
-			"content": [{"type": "text", "text": request['prompt']}]
-		}]
+    messages = [{
+        "role": "user",
+        "content": [{"type": "text", "text": request['prompt']}]
+    }]
 
     try:
         response = co.chat(
             model=model,
-            temperature=temperature,
             messages=messages,
-            max_tokens=max_tokens,
+            **extra,
         )
     except (cohere.errors.bad_request_error.BadRequestError, cohere.errors.unprocessable_entity_error.UnprocessableEntityError) as err:
         if 'too many tokens' in err.body['message']:
@@ -61,18 +61,29 @@ def process_with_cohere(request, model, max_tokens=8192, temperature=0.0):
         if "No valid response generated" in err.body['message']:
             return None
         raise err
-    
-    if response.finish_reason == 'MAX_TOKENS':
+
+    return response.model_dump(mode="json")
+
+
+def _extract(raw, model, extra):
+    if raw['finish_reason'] == 'MAX_TOKENS':
         finish_reason = FINISH_LENGTH
-    elif response.finish_reason == 'COMPLETE':
+    elif raw['finish_reason'] == 'COMPLETE':
         finish_reason = FINISH_STOP
     else:
-        logging.warning(f"Finish reason: {response.finish_reason}")
+        logging.warning(f"Finish reason: {raw['finish_reason']}")
         return None
-    
-    return response.message.content[0].text, {
-        "input_tokens": response.usage.billed_units.input_tokens,
-        "output_tokens": response.usage.billed_units.output_tokens,
-        "thinking_tokens": 0,
+
+    text = "".join(part['text'] for part in raw['message']['content'] if part['type'] == 'text')
+    thinking = "".join(part['thinking'] for part in raw['message']['content'] if part['type'] == 'thinking')
+
+    return text, {
+        "raw_response": raw,
+        "model": model,
+        "extra": extra,
+        "reasoning_trace": thinking or None,
+        "input_tokens": raw['usage']['billed_units']['input_tokens'],
+        "output_tokens": raw['usage']['billed_units']['output_tokens'],
+        "thinking_tokens": raw['usage']['tokens'].get('reasoning_tokens', 0) or 0,
         "finish_reason": finish_reason
     }

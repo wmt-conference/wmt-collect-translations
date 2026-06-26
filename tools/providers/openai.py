@@ -1,6 +1,11 @@
 import os
+from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP, FINISH_LENGTH
 
+MODELS = {
+    # https://developers.openai.com/api/docs/models/gpt-5.5
+    "gpt-5.5-2026-04-23": {"extra": {"max_completion_tokens": 32768, "reasoning_effort": "medium", "verbosity": "medium"}},
+}
 
 CLIENT = None
 def lazy_get_client():
@@ -14,25 +19,34 @@ def lazy_get_client():
     return CLIENT
 
 
-def process_with_openai_gpt4_1(request, max_tokens=None, temperature=0.0):  
-    if max_tokens is None:
-        max_tokens = 32768
-    return openai_call(request, "gpt-4.1", temperature=temperature, max_tokens=max_tokens)
+def process(request, model, extra=None):
+    extra = extra or {}
+    cache = get_cache("openai")
+    key = cache_key(model, request)
+
+    if key in cache:
+        raw, extra = cache[key]["raw"], cache[key]["extra"]
+    else:
+        raw = _call(request, model, extra)
+        if raw is None:
+            return None
+        cache[key] = {"raw": raw, "extra": extra}
+
+    return _extract(raw, extra)
 
 
-def openai_call(request, model, temperature=0.0, max_tokens=None):
-    client = lazy_get_client()
+def _call(request, model, extra):
     import openai
 
+    client = lazy_get_client()
     try:
         response = client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "user", "content": request['prompt']}
             ],
-            max_tokens=max_tokens,
-            temperature=temperature,
-        )    
+            **extra,
+        )
     except (openai.BadRequestError, openai.APITimeoutError) as e:
         return None
     except Exception as e:
@@ -41,17 +55,24 @@ def openai_call(request, model, temperature=0.0, max_tokens=None):
         print(e)
         raise e
 
-    if response.choices[0].finish_reason == "length":
+    return response.model_dump(mode="json")
+
+
+def _extract(raw, extra):
+    if raw['choices'][0]['finish_reason'] == "length":
         finish_reason = FINISH_LENGTH
-    elif response.choices[0].finish_reason == "stop":
+    elif raw['choices'][0]['finish_reason'] == "stop":
         finish_reason = FINISH_STOP
     else:
         return None
 
-    return response.choices[0].message.content, {
-        "input_tokens": response.usage.prompt_tokens,
-        "output_tokens": response.usage.completion_tokens,
-        "thinking_tokens": 0,
+    return raw['choices'][0]['message']['content'], {
+        "raw_response": raw,
+        "model": raw['model'],
+        "extra": extra,
+        "reasoning_trace": None,
+        "input_tokens": raw['usage']['prompt_tokens'],
+        "output_tokens": raw['usage']['completion_tokens'],
+        "thinking_tokens": raw['usage']['completion_tokens_details'].get('reasoning_tokens', 0) or 0,
         "finish_reason": finish_reason
     }
-

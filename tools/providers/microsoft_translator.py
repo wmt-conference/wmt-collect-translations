@@ -4,7 +4,12 @@ import ipdb
 import requests
 from tqdm import tqdm
 from retrying import retry
+from tools.cache import get_cache, cache_key
 from tools.errors import FINISH_STOP
+
+MODELS = {
+    "MicrosoftTranslator": {},
+}
 
 
 def get_headers(MTAPI_SUBSCRIPTION_KEY):
@@ -17,23 +22,49 @@ def get_headers(MTAPI_SUBSCRIPTION_KEY):
 
     return headers
 
-@retry(stop_max_attempt_number=5, retry_on_exception=lambda exception: isinstance(exception, ConnectionError))
-def translate_with_microsoft_api(segment: str, source_language=None, target_language="de", endpoint="https://api.cognitive.microsofttranslator.com/translate"):
+
+def process(request, model=None):
     assert "MTAPI_SUBSCRIPTION_KEY" in os.environ, "Please set the MTAPI_SUBSCRIPTION_KEY environment variable."
 
-    params = {
-        'api-version': '3.0',
-        'to': target_language,
+    cache = get_cache("microsoft_translator")
+    key = cache_key(model, request)
+
+    if key in cache:
+        response = cache[key]
+    else:
+        response = translate_with_microsoft_api(request)
+        cache[key] = response
+
+    assert len(response["value"][0]["translations"]) == 1, "More than one translation returned, this needs to be investigated."
+    return response["value"][0]["translations"][0]['text'], {
+        "raw_response": response,
+        "model": None,
+        "extra": None,
+        "reasoning_trace": None,
+        "input_tokens": None,
+        "output_tokens": None,
+        "thinking_tokens": None,
+        "finish_reason": FINISH_STOP
     }
+
+
+@retry(stop_max_attempt_number=5, retry_on_exception=lambda exception: isinstance(exception, ConnectionError))
+def translate_with_microsoft_api(request, endpoint="https://api.cognitive.microsofttranslator.com/translate"):
+    source_language = request.get('source_language')
+    target_language = request['target_language']
+
+    params = {
+        'api-version': '2026-06-06',
+    }
+
+    input_entry = {'text': request['segment'], 'targets': [{'language': target_language}]}
     if source_language is not None:
-        params["from"] = source_language
+        input_entry["language"] = source_language
 
-    body = [{'text': segment}]
-    request = requests.post(endpoint, params=params, headers=get_headers(os.environ["MTAPI_SUBSCRIPTION_KEY"]), json=body)
-    response = request.json()
+    body = {'inputs': [input_entry]}
+    http_request = requests.post(endpoint, params=params, headers=get_headers(os.environ["MTAPI_SUBSCRIPTION_KEY"]), json=body)
+    return http_request.json()
 
-    assert len(response[0]["translations"]) == 1, "More than one translation returned, this needs to be investigated."
-    return response[0]["translations"][0]['text'], None
 
 def bulk_translate_with_microsoft(segments, source_pt1_iso, target_pt1_iso):
     assert "MTAPI_SUBSCRIPTION_KEY" in os.environ, "Please set the MTAPI_SUBSCRIPTION_KEY environment variable."

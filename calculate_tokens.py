@@ -12,7 +12,6 @@ pricing = {
     'GPT-4': (30, 60), # https://openai.com/api/pricing/
     'Llama3-70B': (0.9, 0.9), # https://www.together.ai/pricing
     'Mistral-Large': (4, 12), # https://mistral.ai/technology/
-    'Phi-3-Medium': (0.5, 1.4) # https://azure.microsoft.com/en-us/pricing/details/phi-3/
 }
 
 data = {}

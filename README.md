@@ -10,30 +10,20 @@ The tool is using 0-shot instruction following when translating with LLMs.
 
 ## Setting up secrets
 
-You need to set one or multiple following secrets for the full utilization:
+Copy `secrets.env.example` to `secrets.env` (this file is git-ignored) and fill in the
+keys for the providers you want to use. Keys you leave empty are ignored, so you only
+need the ones relevant to the models you run. The file is loaded automatically by `main.py`.
 
 ```
-export MTAPI_SUBSCRIPTION_KEY=          # Microsoft Azure API key
-export OPENAI_API_KEY=                  # Google credentials in json file
-export DEEPL_PRO_AUTH_KEY=              # DeepL credentials
-export YANDEX_APPLICATION_CREDENTIALS=  # Yandex API key
-export TOGETHER_API_KEY=                # Together API key
-export COHERE_API_KEY=                  # Cohere key
-export OPENAI_API_KEY=                  # OpenAI Azure key
-export MISTRAL_API_KEY=                 # Mistral API key
-export GEMINI_API_KEY=                  # Gemini API key for Google AI Studio
-export ANTHROPIC_API_KEY=               # Anthropic key for claude
-export PHI_API_KEY=                     # API key for Phi model
+cp secrets.env.example secrets.env
 ```
 
-
-## Download WMT testsets
-
-Download latest blindset from the webpage
 
 ## Running translations
 
 ```
-python main.py --system='SYSTEM'
+python main.py --model='MODEL'
 ```
+
+`MODEL` is the API model id (e.g. `command-a-plus-05-2026`); the owning provider and its default parameters are resolved from the per-provider `MODELS` configs in `tools/providers/`. Non-LLM translators are invoked by name (`DeepL`, `GoogleTranslate`, `YandexTranslate`, `MicrosoftTranslator`).
 
