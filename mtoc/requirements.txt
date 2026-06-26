@@ -1,0 +1,16 @@
+# mtoc runtime dependencies, pinned to the versions verified on the 8xH100 node
+# (CUDA 13 / driver 580). vllm pulls a matching torch + transformers; the rest
+# are pinned to what was frozen alongside it. For an exact, fully-resolved
+# environment use requirements.lock.txt instead:
+#   python3.12 -m venv .venv
+#   .venv/bin/python -m pip install -r mtoc/requirements.lock.txt
+vllm==0.23.0
+torch==2.11.0
+transformers==5.12.1
+accelerate==1.14.0
+huggingface_hub==1.20.1
+sentencepiece==0.2.1
+protobuf==6.33.6
+safetensors==0.8.0
+hf_transfer==0.1.9
+PyYAML==6.0.3

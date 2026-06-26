@@ -1,0 +1,5 @@
+__pycache__/
+outputs*/
+logs*/
+*.log
+commands.wave*.txt
