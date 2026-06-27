@@ -1,0 +1,63 @@
+schema_version: 2
+description: >-
+  WMT26 fast/selected model registry — three models chosen for quality + speed
+  tradeoff. Subset of model_registry.wmt26.yaml; do not duplicate entries there.
+
+  Selected systems:
+    qwen3_5_9b    — best CometKIWI22 (0.732), now tp=8 + FP8 for ~4-8x speedup
+    gpt_oss_120b  — strong quality (0.640), already fast at tp=8 (17 min/47k rows)
+    qwen3_6_27b   — 2nd best quality (0.725), tp=2 (assumed as 3rd pick; adjust if needed)
+
+  Shared anchors reused from wmt26 main registry for consistency.
+
+models:
+  qwen3_5_9b:
+    hf_id: Qwen/Qwen3.5-9B
+    backend: auto
+    dtype: bfloat16
+    # FP8 on-the-fly weight quantization via vLLM — compute stays in bf16.
+    # Halves weight memory, leaving much more KV-cache for large batches.
+    quantization: fp8
+    tensor_parallel_size: 8
+    default_batch_size: 512
+    default_max_input_length: &max_input 8192
+    default_max_new_tokens: &max_new 2048
+    trust_remote_code: true
+    gated: false
+    track: Constrained
+    run_scope: All
+    notes: "Fast config: tp=8 + fp8 quantization on 8x H100. Baseline (no-fp8, tp=1) ran 101 min; expect ~10-15 min here."
+    variants:
+      default: &default_sample {method: sample, temperature: 0.7, top_p: 0.95}
+
+  gpt_oss_120b:
+    hf_id: openai/gpt-oss-120b
+    backend: auto
+    dtype: auto
+    tensor_parallel_size: 8
+    default_batch_size: 64
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
+    trust_remote_code: true
+    gated: false
+    track: Unconstrained
+    run_scope: only subset?
+    notes: "WMT26 sheet: GPT OSS 120B. vLLM MXFP4 MoE weights. Harmony 'final' channel only. Ran ~19 min for 47k rows."
+    variants:
+      default: *default_sample
+
+  qwen3_6_27b:
+    hf_id: Qwen/Qwen3.6-27B
+    backend: auto
+    dtype: bfloat16
+    tensor_parallel_size: 2
+    default_batch_size: 16
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
+    trust_remote_code: true
+    gated: false
+    track: Unconstrained
+    run_scope: All
+    notes: "WMT26 sheet: Qwen3.6-27B. Ran ~108 min at tp=2; could also try tp=4 or tp=8 for ~2x-4x speedup."
+    variants:
+      default: *default_sample

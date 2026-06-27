@@ -1,0 +1,108 @@
+schema_version: 2
+description: >-
+  Decoding-strategy study registry (research, isolated from shared-task configs).
+
+  THREE clean-chat-template model families — Qwen, GLM, Mistral — each run through
+  the same decoding-variant sweep, to answer robustly across families:
+    1. beam search vs sampling for LLM MT
+    2. quality sensitivity to temperature, top_p, and beam size
+
+  Model selection rationale:
+    - All use STANDARD chat templates (no special prompt format needed), so the
+      decoding comparison is not confounded by prompt mismatch. (Tower-Plus and
+      Gemma were excluded: Tower needs its own `Translate ... {SRC}: ... {TGT}: `
+      format, Gemma needs processor.parse_response() — both would add noise.)
+    - bf16 (NOT fp8): quantization perturbs logits and would confound the study.
+    - tp=1 per model: all fit on one H100; the launcher runs them concurrently.
+    - identical variant set on every model (defined once via YAML anchors).
+
+  Each (model, variant) produces a separate stream <model>__<variant>.translations.jsonl.
+  Run a subset with --variants greedy sample_t07 beam4, or all with --variants all.
+
+  NOTE: beam search disables vLLM continuous batching and is slower; the beam
+  variants dominate runtime.
+
+models:
+  qwen3_5_9b:
+    hf_id: Qwen/Qwen3.5-9B
+    backend: auto
+    dtype: bfloat16
+    tensor_parallel_size: 1
+    default_batch_size: 64
+    default_max_input_length: &max_input 8192
+    default_max_new_tokens: &max_new 512
+    trust_remote_code: true
+    gated: false
+    track: Constrained
+    run_scope: study
+    notes: "Decoding study: Qwen family, 9B, bf16, standard chat template."
+    variants:
+      greedy:       &greedy     {method: greedy}
+      sample_t03:   &t03        {method: sample, temperature: 0.3, top_p: 0.95, seed: 42}
+      sample_t05:   &t05        {method: sample, temperature: 0.5, top_p: 0.95, seed: 42}
+      sample_t07:   &t07        {method: sample, temperature: 0.7, top_p: 0.95, seed: 42}
+      sample_t09:   &t09        {method: sample, temperature: 0.9, top_p: 0.95, seed: 42}
+      sample_t11:   &t11        {method: sample, temperature: 1.1, top_p: 0.95, seed: 42}
+      topp_080:     &topp080    {method: sample, temperature: 0.7, top_p: 0.80, seed: 42}
+      topp_090:     &topp090    {method: sample, temperature: 0.7, top_p: 0.90, seed: 42}
+      topp_100:     &topp100    {method: sample, temperature: 0.7, top_p: 1.00, seed: 42}
+      beam2:        &beam2      {method: beam, num_beams: 2, length_penalty: 1.0}
+      beam4:        &beam4      {method: beam, num_beams: 4, length_penalty: 1.0}
+      beam4_lp06:   &beam4lp06  {method: beam, num_beams: 4, length_penalty: 0.6}
+      beam4_lp14:   &beam4lp14  {method: beam, num_beams: 4, length_penalty: 1.4}
+
+  glm4_9b:
+    hf_id: zai-org/glm-4-9b-chat
+    backend: auto
+    dtype: bfloat16
+    tensor_parallel_size: 1
+    default_batch_size: 64
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
+    trust_remote_code: true
+    gated: false
+    track: Constrained
+    run_scope: study
+    notes: "Decoding study: GLM family, 9B, bf16, standard chat template."
+    variants:
+      greedy:       *greedy
+      sample_t03:   *t03
+      sample_t05:   *t05
+      sample_t07:   *t07
+      sample_t09:   *t09
+      sample_t11:   *t11
+      topp_080:     *topp080
+      topp_090:     *topp090
+      topp_100:     *topp100
+      beam2:        *beam2
+      beam4:        *beam4
+      beam4_lp06:   *beam4lp06
+      beam4_lp14:   *beam4lp14
+
+  ministral3_14b:
+    hf_id: mistralai/Ministral-3-14B-Instruct-2512
+    backend: auto
+    dtype: bfloat16
+    tensor_parallel_size: 1
+    default_batch_size: 64
+    default_max_input_length: *max_input
+    default_max_new_tokens: *max_new
+    trust_remote_code: false
+    gated: false
+    track: Constrained
+    run_scope: study
+    notes: "Decoding study: Mistral family, 14B, bf16, standard (mistral) chat template."
+    variants:
+      greedy:       *greedy
+      sample_t03:   *t03
+      sample_t05:   *t05
+      sample_t07:   *t07
+      sample_t09:   *t09
+      sample_t11:   *t11
+      topp_080:     *topp080
+      topp_090:     *topp090
+      topp_100:     *topp100
+      beam2:        *beam2
+      beam4:        *beam4
+      beam4_lp06:   *beam4lp06
+      beam4_lp14:   *beam4lp14

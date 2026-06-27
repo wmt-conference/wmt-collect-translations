@@ -34,6 +34,7 @@ class RuntimeModelConfig:
     model_id: str
     backend: str
     dtype: str = "bfloat16"
+    quantization: str = ""
     tensor_parallel_size: int = 1
     default_batch_size: int = 1
     default_max_input_length: int = 4096

@@ -96,6 +96,7 @@ def load_model_registry(path: Path) -> Dict[str, RuntimeModelConfig]:
             model_id=str(raw_config["hf_id"]),
             backend=str(raw_config.get("backend", "hf")),
             dtype=str(raw_config.get("dtype", "bfloat16")),
+            quantization=str(raw_config.get("quantization", "") or ""),
             tensor_parallel_size=int(raw_config.get("tensor_parallel_size", 1)),
             default_batch_size=int(raw_config.get("default_batch_size", 1)),
             default_max_input_length=int(raw_config.get("default_max_input_length", 4096)),

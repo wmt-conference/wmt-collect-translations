@@ -467,9 +467,15 @@ class VllmAdapter(BaseBackend):
             # max_num_seqs caps concurrent in-flight sequences; reduces KV-cache pressure
             # for large models while keeping throughput healthy.
             max_num_seqs=self.model_config.default_batch_size,
+            # Prefix caching lets vLLM's beam_search() (which re-submits the full growing
+            # sequence each step) reuse the cached KV prefix instead of re-prefilling,
+            # turning beam from ~O(T^2) toward ~O(T). Harmless for normal generation.
+            enable_prefix_caching=True,
             trust_remote_code=self.model_config.trust_remote_code,
             gpu_memory_utilization=self.gpu_memory_utilization,
         )
+        if self.model_config.quantization:
+            llm_kwargs["quantization"] = self.model_config.quantization
         if self._is_mistral:
             # Mistral vision-language checkpoints (e.g. Mistral3ForConditionalGeneration,
             # Ministral) fail vLLM's multimodal profiling because the MistralCommon
@@ -561,7 +567,21 @@ class VllmAdapter(BaseBackend):
         )
         prompt_token_ids = [self.tokenizer.encode(p) for p in rendered_prompts]
         prompts = [TokensPrompt(prompt_token_ids=ids) for ids in prompt_token_ids]
-        outputs = self.llm.beam_search(prompts, params)
+        # Bound the number of prompts beam-searched concurrently. vLLM's beam_search
+        # holds beam_width sequences alive per prompt; feeding it hundreds of prompts
+        # at once (e.g. 300 rows x 4 beams = 1200 sequences, plus any long-context
+        # rows) overwhelms the KV cache and triggers constant preemption/recompute,
+        # which can slow a job by ~10x or stall it entirely. Processing in sub-batches
+        # keeps memory bounded. Tune via BEAM_CONCURRENCY_LIMIT.
+        beam_concurrency = int(os.environ.get("BEAM_CONCURRENCY_LIMIT", "64"))
+        beam_kwargs: Dict[str, Any] = {}
+        if beam_concurrency > 0:
+            beam_kwargs["concurrency_limit"] = beam_concurrency
+        try:
+            outputs = self.llm.beam_search(prompts, params, **beam_kwargs)
+        except TypeError:
+            # Older vLLM builds without concurrency_limit support.
+            outputs = self.llm.beam_search(prompts, params)
         texts: List[str] = []
         for ids, o in zip(prompt_token_ids, outputs):
             seqs = getattr(o, "sequences", None) or []
