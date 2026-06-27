@@ -203,4 +203,4 @@ models:
       WMT26 sheet: GPT OSS 120B. vLLM loads the native MXFP4 MoE weights (HF loader
       hits a CUDA illegal-memory-access). Only the Harmony 'final' channel is saved.
     variants:
-      default: {method: sample, temperature: 0.6, top_p: 0.95, thinking: true}
+      default: {method: sample, temperature: 0.7, top_p: 0.95}
