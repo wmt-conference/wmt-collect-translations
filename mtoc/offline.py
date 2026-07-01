@@ -56,6 +56,41 @@ def _apply_chat_template(
     return tokenizer.apply_chat_template(messages, tokenize=tokenize, add_generation_prompt=True)
 
 
+def _compose_messages(prompt: str, system_prompt: str | None) -> List[Dict[str, str]]:
+    """Build chat messages, adding a system-role message when provided."""
+    if system_prompt:
+        return [{"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}]
+    return [{"role": "user", "content": prompt}]
+
+
+def _prepend_system(prompt: str, system_prompt: str | None) -> str:
+    """Fold a system instruction into the user turn (fallback for chat templates
+    that do not support a system role)."""
+    return f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+
+
+def _render_chat(tokenizer: Any, prompt: str, *, system_prompt: str | None,
+                 gpt_oss: bool, thinking: bool | None,
+                 tokenize: bool, return_dict: bool) -> Any:
+    """Apply the chat template with an optional system prompt, degrading to a
+    user-folded system prefix if the template rejects the system role."""
+    candidates = [_compose_messages(prompt, system_prompt)]
+    if system_prompt:
+        candidates.append(_compose_messages(_prepend_system(prompt, system_prompt), None))
+    last_exc: Exception | None = None
+    for messages in candidates:
+        try:
+            return _apply_chat_template(
+                tokenizer, messages, tokenize=tokenize, return_dict=return_dict,
+                gpt_oss=gpt_oss, thinking=thinking,
+            )
+        except Exception as exc:  # noqa: BLE001 - try the next fallback
+            last_exc = exc
+            continue
+    raise last_exc if last_exc else RuntimeError("chat template rendering failed")
+
+
 def _extract_gpt_oss_final(text: str) -> str:
     """Return only the Harmony ``final`` channel from a gpt-oss completion.
 
@@ -280,7 +315,7 @@ class HfCausalLmAdapter(BaseBackend):
                 self._chat_template_ids(request.prompt(), max_input_length, decoding) for request in requests
             ]
             return self._left_pad(token_id_lists)
-        prompts = [request.prompt() for request in requests]
+        prompts = [_prepend_system(request.prompt(), decoding.system_prompt) for request in requests]
         return self.tokenizer(
             prompts,
             return_tensors="pt",
@@ -290,10 +325,10 @@ class HfCausalLmAdapter(BaseBackend):
         )
 
     def _chat_template_ids(self, prompt: str, max_input_length: int, decoding: DecodingConfig) -> List[int]:
-        messages = [{"role": "user", "content": prompt}]
-        encoded = _apply_chat_template(
-            self.tokenizer, messages, tokenize=True, return_dict=True,
+        encoded = _render_chat(
+            self.tokenizer, prompt, system_prompt=decoding.system_prompt,
             gpt_oss=self._is_gpt_oss, thinking=decoding.thinking,
+            tokenize=True, return_dict=True,
         )
         ids = list(encoded["input_ids"])
         if max_input_length and len(ids) > max_input_length:
@@ -496,7 +531,7 @@ class VllmAdapter(BaseBackend):
         decoding: DecodingConfig,
     ) -> List[TranslationResult]:
         self.load()
-        rendered_prompts = [self._render_prompt(request.prompt(), decoding.thinking) for request in requests]
+        rendered_prompts = [self._render_prompt(request.prompt(), decoding.thinking, decoding.system_prompt) for request in requests]
 
         if decoding.method == "beam":
             texts = self._beam_search(rendered_prompts, decoding, max_new_tokens)
@@ -578,22 +613,23 @@ class VllmAdapter(BaseBackend):
                 texts.append(full)
         return texts
 
-    def _render_prompt(self, prompt: str, thinking: bool | None = None) -> str:
+    def _render_prompt(self, prompt: str, thinking: bool | None = None,
+                       system_prompt: str | None = None) -> str:
         # Mistral tokenizers (tokenizer_mode="mistral") expose apply_chat_template
         # but may not surface a ``chat_template`` attribute, so detect them by name
         # as well and attempt templating regardless.
         has_template = getattr(self.tokenizer, "chat_template", None) is not None
         is_mistral_tok = "mistral" in type(self.tokenizer).__name__.lower() or self._is_mistral
         if has_template or is_mistral_tok:
-            messages = [{"role": "user", "content": prompt}]
             try:
-                return _apply_chat_template(
-                    self.tokenizer, messages, tokenize=False, return_dict=False,
+                return _render_chat(
+                    self.tokenizer, prompt, system_prompt=system_prompt,
                     gpt_oss=self._is_gpt_oss, thinking=thinking,
+                    tokenize=False, return_dict=False,
                 )
             except Exception:
-                return prompt
-        return prompt
+                return _prepend_system(prompt, system_prompt)
+        return _prepend_system(prompt, system_prompt)
 
 
 class AutoBackend(BaseBackend):

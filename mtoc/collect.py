@@ -57,6 +57,9 @@ def parse_decoding_config(name: str, raw: object) -> DecodingConfig:
     thinking = raw.get("thinking", None)
     if thinking is not None:
         thinking = bool(thinking)
+    system_prompt = raw.get("system_prompt", None)
+    if system_prompt is not None:
+        system_prompt = str(system_prompt).strip() or None
     return DecodingConfig(
         name=name,
         method=method,
@@ -67,6 +70,7 @@ def parse_decoding_config(name: str, raw: object) -> DecodingConfig:
         thinking=thinking,
         seed=(int(raw["seed"]) if raw.get("seed") is not None else None),
         max_new_tokens=(int(raw["max_new_tokens"]) if raw.get("max_new_tokens") is not None else None),
+        system_prompt=system_prompt,
     )
 
 

@@ -69,6 +69,23 @@ models:
     notes: "WMT26 sheet: Gemma 4 4B. Gated Google model."
     variants:
       default: *default_sample
+      # Corrected prompt: Gemma 4 supports a native system role. The bare test-set
+      # instruction makes this helpful-tuned model ramble (options, breakdowns,
+      # transliterations), which tanks QE. This variant adds a system prompt that
+      # constrains it to emit only the translation. Same sampling as `default`;
+      # kept alongside it (stream <model>__sysprompt). The anchor is shared by the
+      # other talky, system-prompt-capable models (ministral, mistral_medium, tower).
+      sysprompt: &sys_translate_only
+        method: sample
+        temperature: 0.7
+        top_p: 0.95
+        system_prompt: >-
+          You are a professional translator. Translate the user's text into the
+          requested target language. Output only the final translation — no
+          preamble, explanations, alternatives, transliterations, notes, or
+          commentary, and do not restate the request. Preserve the meaning, tone,
+          and any structure or markup (e.g. JSON keys, HTML tags, placeholders)
+          present in the source.
 
   ministral3_14b:
     hf_id: mistralai/Ministral-3-14B-Instruct-2512
@@ -85,6 +102,9 @@ models:
     notes: "WMT26 sheet: Ministral 3 14B (FP8). vLLM serves it text-only; HF upcasts to bf16."
     variants:
       default: *default_sample
+      # Ministral rambles (~21% of rows add glosses/breakdowns; some [INST] leakage).
+      # Its card: "strong adherence and support for system prompts". Constrain it.
+      sysprompt: *sys_translate_only
 
   gpt_oss_20b:
     hf_id: openai/gpt-oss-20b
@@ -120,6 +140,10 @@ models:
     notes: "WMT26 sheet: TowerPlus 9B. Translation-tuned chat model."
     variants:
       default: *default_sample
+      # NB: a `sysprompt` variant was A/B-tested and REGRESSED Tower (cometkiwi
+      # 0.780 -> 0.733 on a 48-row aeb slice). Tower is translation-tuned and does
+      # not want a system prompt (its card shows a specific user-message format),
+      # so it stays on `default`; its ~4% talky rows are handled by extraction.
 
   glm4_9b:
     hf_id: zai-org/glm-4-9b-chat
@@ -168,6 +192,7 @@ models:
     notes: "WMT26 sheet: Gemma 4 31B. Gated Google model."
     variants:
       default: *default_sample
+      sysprompt: *sys_translate_only
 
   mistral_medium_3_5:
     hf_id: mistralai/Mistral-Medium-3.5-128B
@@ -186,6 +211,8 @@ models:
       (tokenizer_mode=mistral, limit_mm_per_prompt image=0); dtype=auto keeps FP8.
     variants:
       default: *default_sample
+      # Card: "strong adherence and support for system prompts". ~7% talky.
+      sysprompt: *sys_translate_only
 
   gpt_oss_120b:
     hf_id: openai/gpt-oss-120b
