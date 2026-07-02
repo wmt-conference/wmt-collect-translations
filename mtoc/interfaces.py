@@ -14,7 +14,11 @@ class DecodingConfig:
     toggles a model's reasoning channel where supported (e.g. Qwen
     ``enable_thinking``, gpt-oss ``reasoning_effort``); ``None`` keeps the safe
     default (reasoning suppressed). ``max_new_tokens`` optionally overrides the
-    per-model generation length for this variant.
+    per-model generation length for this variant. ``system_prompt`` optionally
+    prepends a ``system``-role message (native on models like Gemma 4) to steer
+    the model, e.g. to constrain a talky instruct model to output only the
+    translation. It falls back to a folded-in user prefix on models whose chat
+    template rejects a system role.
     """
 
     name: str = "default"
@@ -26,6 +30,7 @@ class DecodingConfig:
     thinking: Optional[bool] = None
     seed: Optional[int] = None
     max_new_tokens: Optional[int] = None
+    system_prompt: Optional[str] = None
 
 
 @dataclass(frozen=True)
