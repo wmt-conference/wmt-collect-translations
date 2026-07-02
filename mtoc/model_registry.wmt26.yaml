@@ -69,12 +69,10 @@ models:
     notes: "WMT26 sheet: Gemma 4 4B. Gated Google model."
     variants:
       default: *default_sample
-      # Corrected prompt: Gemma 4 supports a native system role. The bare test-set
-      # instruction makes this helpful-tuned model ramble (options, breakdowns,
-      # transliterations), which tanks QE. This variant adds a system prompt that
-      # constrains it to emit only the translation. Same sampling as `default`;
-      # kept alongside it (stream <model>__sysprompt). The anchor is shared by the
-      # other talky, system-prompt-capable models (ministral, mistral_medium, tower).
+      # Gemma 4's model card documents native `system` role support. This variant adds
+      # a system prompt that constrains the instruction-tuned model to emit only the
+      # translation (same sampling as `default`; stream <model>__sysprompt). The anchor
+      # is shared by the other system-prompt-capable models (ministral, mistral_medium).
       sysprompt: &sys_translate_only
         method: sample
         temperature: 0.7
@@ -102,9 +100,24 @@ models:
     notes: "WMT26 sheet: Ministral 3 14B (FP8). vLLM serves it text-only; HF upcasts to bf16."
     variants:
       default: *default_sample
-      # Ministral rambles (~21% of rows add glosses/breakdowns; some [INST] leakage).
-      # Its card: "strong adherence and support for system prompts". Constrain it.
+      # Ministral's model card notes "strong adherence and support for system prompts",
+      # so this variant adds one to constrain the output to the translation only.
       sysprompt: *sys_translate_only
+      # Ministral's model card also recommends "temperature below 0.1" for production
+      # use. This card-matching variant pairs that low temperature with the translate-
+      # only system prompt (native-script instruction) its system-prompt support enables.
+      sys_lowtemp:
+        method: sample
+        temperature: 0.1
+        top_p: 1.0
+        system_prompt: >-
+          You are a professional translator. Translate the user's text into the
+          requested target language. Output only the final translation — no
+          preamble, explanations, alternatives, transliterations, notes, or
+          commentary, and do not restate the request. Write the translation in the
+          standard writing system (native script) of the target language; do not
+          romanize or transliterate. Preserve meaning, tone, and any structure or
+          markup (e.g. JSON keys, HTML tags, placeholders) present in the source.
 
   gpt_oss_20b:
     hf_id: openai/gpt-oss-20b
@@ -131,7 +144,10 @@ models:
     dtype: bfloat16
     tensor_parallel_size: 1
     default_batch_size: 8
-    default_max_input_length: *max_input
+    # Tower's context is 8192. The shared 8192+2048 (=10240) max_model_len forces a
+    # fallback to the slow HF backend; cap it to 4096+2048 (=6144 <= 8192) so vLLM
+    # serves it. Safe: blindset source docs are tiny (median ~38, max ~1.3k tokens).
+    default_max_input_length: 4096
     default_max_new_tokens: *max_new
     trust_remote_code: false
     gated: false
@@ -140,10 +156,10 @@ models:
     notes: "WMT26 sheet: TowerPlus 9B. Translation-tuned chat model."
     variants:
       default: *default_sample
-      # NB: a `sysprompt` variant was A/B-tested and REGRESSED Tower (cometkiwi
-      # 0.780 -> 0.733 on a 48-row aeb slice). Tower is translation-tuned and does
-      # not want a system prompt (its card shows a specific user-message format),
-      # so it stays on `default`; its ~4% talky rows are handled by extraction.
+      # Tower is a translation-tuned model; its model card decodes GREEDY
+      # (temperature=0 / do_sample=False) with a plain user message (no system prompt).
+      # This variant matches the card, replacing the sampled `default`:
+      greedy: {method: greedy}
 
   glm4_9b:
     hf_id: zai-org/glm-4-9b-chat
@@ -211,8 +227,21 @@ models:
       (tokenizer_mode=mistral, limit_mm_per_prompt image=0); dtype=auto keeps FP8.
     variants:
       default: *default_sample
-      # Card: "strong adherence and support for system prompts". ~7% talky.
-      sysprompt: *sys_translate_only
+      # Mistral Medium's model card recommends temperature ~0.1 for non-reasoning tasks
+      # and documents strong system-prompt support. This card-matching variant uses that
+      # low temperature with a translate-only system prompt (native-script instruction).
+      sys_lowtemp:
+        method: sample
+        temperature: 0.1
+        top_p: 1.0
+        system_prompt: >-
+          You are a professional translator. Translate the user's text into the
+          requested target language. Output only the final translation — no
+          preamble, explanations, alternatives, transliterations, notes, or
+          commentary, and do not restate the request. Write the translation in the
+          standard writing system (native script) of the target language; do not
+          romanize or transliterate. Preserve meaning, tone, and any structure or
+          markup (e.g. JSON keys, HTML tags, placeholders) present in the source.
 
   gpt_oss_120b:
     hf_id: openai/gpt-oss-120b
