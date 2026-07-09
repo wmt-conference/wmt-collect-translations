@@ -36,7 +36,7 @@ def process(request, model, extra=None, api_model=None):
 
 
 def _call(request, model, extra):
-    import together
+    import together.error
 
     client = lazy_get_client()
     try:

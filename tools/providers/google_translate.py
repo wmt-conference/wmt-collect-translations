@@ -92,6 +92,7 @@ def process(request, model=None):
         raw = goog_translate_client.translate(
             request['segment'],
             target_language=target_language,
+            format_='text',
         )
         cache[key] = raw
 
