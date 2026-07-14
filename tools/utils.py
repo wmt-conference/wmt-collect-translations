@@ -37,11 +37,13 @@ def _request_model(model_name, request):
 
     answer, metadata = answer
 
+    # raw_response is too large to keep, it stays only in the provider cache
+    metadata.pop('raw_response', None)
+
     answer = answer.strip()
     return {
         'doc_id': request['doc_id'],
         'translation': answer,
-        'translation_granularity': 'document-level',
         "metadata": metadata
     }
 
@@ -74,7 +76,6 @@ def _process_row(row, model_name, unsupported_languages, lock):
         answer = {
             'doc_id': request['doc_id'],
             'translation': "FAILED",
-            'translation_granularity': None,
             'metadata': None
         }
 
